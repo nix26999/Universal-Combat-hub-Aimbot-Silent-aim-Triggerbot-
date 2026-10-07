@@ -1,41 +1,1754 @@
-# Compiled Lua sources
-luac.out
+-- COMBAT HUB ULTRA — all modules
+-- RShift = menu
 
-# luarocks build files
-*.src.rock
-*.zip
-*.tar.gz
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
+local VIM
+pcall(function() VIM=game:GetService("VirtualInputManager") end)
+local Lighting = game:GetService("Lighting")
+local TP = game:GetService("TeleportService")
+local HS = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Cam = workspace.CurrentCamera
+local LP = Players.LocalPlayer
+local Mouse = LP:GetMouse()
 
-# Object files
-*.o
-*.os
-*.ko
-*.obj
-*.elf
+local S = {
+	-- aim
+	Aimbot=false, SilentAim=false, AimAssist=false, MagnetAim=false, AimMethod="Camera",
+	AimKey=Enum.UserInputType.MouseButton2, AimKeyMouse=true, AimMode="Hold", AimOn=false,
+	HeadOnly=true, LockPart="Head", StickyAim=true, Humanize=false, Jitter=0.4,
+	Triggerbot=false, AutoShoot=false, Prediction=0.12, Smooth=0.22, AssistStr=0.08, MagnetStr=0.35,
+	FOV=160, DynFOV=false, DynFOVAdd=40, ShowFOV=true, TeamCheck=true, WallCheck=false, VisibleOnly=false,
+	IgnoreFriends=true, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
+	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0.5, FirstBullet=true,
+	-- rage
+	Hitbox=false, HitboxSize=8, KillAura=false, AuraRange=15, MeleeAim=false, DoubleTap=false, ForceHeadClose=false, CloseRange=25, AutoWall=false,
+	-- legit / recoil
+	AntiRecoil=true, LockPitch=true, VStr=2.4, HStr=0.6, Pattern=true, PatternScale=0.15, PatternCap=3.2, RCSAfter=0, NoSpread=false, RapidFire=false, AutoReload=false,
+	-- visuals
+	Chams=false, NameESP=false, DistESP=false, HPESP=false, WeaponESP=false, BoxESP=false, Tracers=false, Radar=false, HitMarker=true, DmgNum=true, BulletTrace=false, Crosshair=false, ESPColor=Color3.fromRGB(255,60,80),
+	-- move
+	Speed=false, SpeedVal=28, Fly=false, FlySpeed=55, InfJump=false, Noclip=false, Bhop=false, JumpPow=false, JumpVal=100, LongJump=false, Orbit=false, OrbitSpd=10, OrbitRng=8, ClickTP=false, AirStrafe=false, EdgeJump=false, CrouchSpam=false, Dash=false, DashPower=80,
+	-- player
+	InfAmmo=false, God=false, AntiAFK=true, Spinbot=false, SpinSpd=20, AntiAim=false, NoFall=false, AntiStun=false, AutoHeal=false, InfStamina=false,
+	-- world
+	Fullbright=false, NoFog=false, NoFlash=false, NoParticles=false, NoShadows=false, CustomFOV=false, FOVVal=90, ThirdPerson=false, Freecam=false, TimeChanger=false, TimeVal=12,
+	-- util
+	Watermark=true, PanicKey=Enum.KeyCode.End, Panic=false,
+	-- social
+	ChatSpam=false, ChatMsg="gg", ChatDelay=3, EmoteSpam=false,
+	-- extra per-module settings
+	TriggerDelay=0.08, TriggerRange=22,
+	AutoShootDelay=0.08,
+	DoubleTapDelay=0.04,
+	ChamsFill=0.5, ChamsOutline=0,
+	CrosshairSize=6, CrosshairGap=3,
+	RadarScale=2,
+	ESPMaxDist=2000,
+	SilentFovOnly=false,
+	FlyKey=Enum.KeyCode.F,
+	NoclipKey=Enum.KeyCode.V,
+	HitMarkerSize=18, HitMarkerTime=0.12,
+	BulletTraceTime=0.15,
+	AutoReloadKey=Enum.KeyCode.R,
+}
 
-# Precompiled Headers
-*.gch
-*.pch
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-*.def
-*.exp
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+-- Audit: managed connections and reversible property overrides.
+local running=true
+local connections={}
+local function connect(signal,fn)
+    local connection=signal:Connect(function(...)
+        if running then fn(...) end
+    end)
+    table.insert(connections,connection)
+    return connection
+end
+local mutations={}
+local humanoidStates={}
+local writeOrder=0
+local function setProperty(module,object,property,value)
+    if not object then return end
+    local ok=pcall(function()
+        local properties=mutations[object]
+        if not properties then properties={}; mutations[object]=properties end
+        local record=properties[property]
+        if not record then record={original=object[property],layers={}}; properties[property]=record end
+        writeOrder+=1
+        record.layers[module]={value=value,order=writeOrder}
+        object[property]=value
+    end)
+    return ok
+end
+local function restoreModule(module)
+    for object,properties in pairs(mutations) do
+        for property,record in pairs(properties) do
+            if record.layers[module] then
+                record.layers[module]=nil
+                local top
+                for _,layer in pairs(record.layers) do if not top or layer.order>top.order then top=layer end end
+                pcall(function() if top then object[property]=top.value else object[property]=record.original end end)
+                if not top then properties[property]=nil end
+            end
+        end
+        if not next(properties) then mutations[object]=nil end
+    end
+    if module=="NoFall" then
+        for hum,states in pairs(humanoidStates) do
+            for state,enabled in pairs(states) do pcall(function() hum:SetStateEnabled(state,enabled) end) end
+        end
+        table.clear(humanoidStates)
+    end
+end
+local function restoreAll()
+    for object,properties in pairs(mutations) do
+        for property,record in pairs(properties) do pcall(function() object[property]=record.original end) end
+    end
+    table.clear(mutations)
+    restoreModule("NoFall")
+end
+local unsupported={MeleeAim=true,DmgNum=true,InfStamina=true,EmoteSpam=true}
+for key in pairs(unsupported) do S[key]=false end
+local particlesApplied=false
+local lastFlashScan=0
+local cancelCapture
 
+-- Config profiles
+local configDefaults=table.clone(S)
+local configRefresh,configCallbacks,configRules={},{},{}
+local function encodeConfig()
+    local values={}
+    for k,v in pairs(S) do if k~="AimOn" and k~="Panic" then
+        if typeof(v)=="EnumItem" then values[k]={enum=tostring(v.EnumType):match("Enum%.(.+)"),name=v.Name}
+        elseif typeof(v)=="Color3" then values[k]={r=v.R,g=v.G,b=v.B}
+        else values[k]=v end
+    end end
+    return HS:JSONEncode({version=1,settings=values})
+end
+local function applyConfig(values)
+    local nextValues=table.clone(configDefaults)
+    local function finite(v) return type(v)=="number" and v==v and math.abs(v)<math.huge end
+    for k,v in pairs(values) do
+        local default=configDefaults[k]
+        if default~=nil and k~="AimOn" and k~="Panic" then
+            if typeof(default)=="EnumItem" and type(v)=="table" then
+                local allowed=(k=="AimKey" and (v.enum=="KeyCode" or v.enum=="UserInputType")) or (k=="PanicKey" and v.enum=="KeyCode")
+                if allowed and type(v.name)=="string" then
+                    local ok,item=pcall(function() return Enum[v.enum][v.name] end)
+                    if ok and item and ((item.EnumType==Enum.KeyCode and item~=Enum.KeyCode.Unknown) or (k=="AimKey" and (item==Enum.UserInputType.MouseButton1 or item==Enum.UserInputType.MouseButton2 or item==Enum.UserInputType.MouseButton3))) then nextValues[k]=item end
+                end
+            elseif typeof(default)=="Color3" and type(v)=="table" then
+                if finite(v.r) and finite(v.g) and finite(v.b) then nextValues[k]=Color3.new(math.clamp(v.r,0,1),math.clamp(v.g,0,1),math.clamp(v.b,0,1)) end
+            elseif typeof(v)==typeof(default) then
+                local rule=configRules[k]
+                if type(v)=="number" then
+                    if finite(v) then
+                        if rule and rule.min then v=math.clamp(v,rule.min,rule.max); v=math.floor(v*10^rule.dec+.5)/10^rule.dec end
+                        nextValues[k]=v
+                    end
+                elseif not rule or not rule.options or table.find(rule.options,v) then nextValues[k]=v end
+            end
+        end
+    end
+    nextValues.AimKeyMouse=nextValues.AimKey.EnumType==Enum.UserInputType
+    nextValues.AimOn=false; nextValues.Panic=false
+    for key in pairs(unsupported) do nextValues[key]=false end
+    local changed={}
+    for k,v in pairs(nextValues) do changed[k]=S[k]~=v; S[k]=v end
+    for k,v in pairs(nextValues) do if changed[k] and v==false then restoreModule(k) end end
+    particlesApplied=false
+    for k,fn in pairs(configCallbacks) do if changed[k] then pcall(fn,S[k]) end end
+    
+for _,fn in ipairs(configRefresh) do pcall(fn) end
+end
+
+-- Auto Execute prefs (additive)
+local AUTOEXEC_PATH = "CombatUltraConfigs/_autoexec.json"
+local autoExecEnabled = false
+local autoExecProfile = "default"
+
+local function loadAutoExecPrefs()
+	if type(readfile) ~= "function" then return end
+	pcall(function()
+		if type(isfolder) == "function" and not isfolder("CombatUltraConfigs") then return end
+		if type(isfile) == "function" and not isfile(AUTOEXEC_PATH) then return end
+		local data = HS:JSONDecode(readfile(AUTOEXEC_PATH))
+		if type(data) == "table" then
+			if type(data.enabled) == "boolean" then autoExecEnabled = data.enabled end
+			if type(data.profile) == "string"
+				and #data.profile > 0
+				and #data.profile <= 48
+				and data.profile:match("^[%w_-]+$") then
+				autoExecProfile = data.profile
+			end
+		end
+	end)
+end
+
+local function saveAutoExecPrefs()
+	if type(writefile) ~= "function" then return false, "File storage unavailable" end
+	if type(isfolder) == "function" and type(makefolder) == "function" then
+		if not isfolder("CombatUltraConfigs") then makefolder("CombatUltraConfigs") end
+	end
+	writefile(AUTOEXEC_PATH, HS:JSONEncode({
+		enabled = autoExecEnabled,
+		profile = autoExecProfile,
+	}))
+	return true
+end
+
+local function runAutoExec()
+	if not autoExecEnabled then return end
+	if type(readfile) ~= "function" then
+		warn("[combat ultra] auto-exec skipped: no readfile")
+		return
+	end
+	local name = tostring(autoExecProfile or ""):match("^%s*(.-)%s*$") or ""
+	if name == "" or not name:match("^[%w_-]+$") then
+		warn("[combat ultra] auto-exec skipped: bad profile name")
+		return
+	end
+	local path = "CombatUltraConfigs/" .. name .. ".json"
+	local ok, err = pcall(function()
+		local text = readfile(path)
+		local data = HS:JSONDecode(text)
+		assert(type(data) == "table" and data.version == 1 and type(data.settings) == "table", "invalid profile")
+		applyConfig(data.settings)
+		HK = false
+		CT = nil
+	end)
+	if ok then
+		print("[combat ultra] auto-exec loaded: " .. name)
+	else
+		warn("[combat ultra] auto-exec failed: " .. tostring(err))
+	end
+end
+
+loadAutoExecPrefs()
+
+
+local CT, HK, lastSwitch, ESP, OSZ = nil, false, 0, {}, {}
+local bindingCapture=false
+local function aimPosition()
+    local camera=workspace.CurrentCamera
+    if camera and (S.AimMethod=="Camera" or UIS.MouseBehavior==Enum.MouseBehavior.LockCenter) then return camera.ViewportSize/2 end
+    return UIS:GetMouseLocation()
+end
+
+local BV, BG, FOVc, CH, radarDots = nil, nil, nil, {}, {}
+local savedPitch, orbitAng, patternMul, shootStart = nil, 0, 1, 0
+local oldAmb, oldBri, oldFog, oldShadow
+local lastChat, hitMarks, dmgLabels = 0, {}, {}
+local freecamConn, freecamPos
+local panicAll,dispose
+local function stopFreecam()
+    if freecamConn then freecamConn:Disconnect(); freecamConn=nil end
+    restoreModule("Freecam")
+end
+configCallbacks.Freecam=function(value) if not value then stopFreecam() end end
+
+pcall(function()
+	FOVc=Drawing.new("Circle"); FOVc.Thickness=1.5; FOVc.NumSides=64; FOVc.Filled=false; FOVc.Visible=false; FOVc.ZIndex=999; FOVc.Transparency=1; FOVc.Color=Color3.fromRGB(255,255,255)
+end)
+pcall(function() for i=1,4 do local l=Drawing.new("Line"); l.Thickness=1.5; l.Color=Color3.fromRGB(255,255,255); l.Visible=false; CH[i]=l end end)
+
+-- theme
+local T={bg=Color3.fromRGB(12,12,16),panel=Color3.fromRGB(18,18,24),p2=Color3.fromRGB(24,24,32),card=Color3.fromRGB(22,22,30),stroke=Color3.fromRGB(40,40,55),acc=Color3.fromRGB(88,140,255),txt=Color3.fromRGB(235,235,245),dim=Color3.fromRGB(140,140,160),mut=Color3.fromRGB(90,90,110),ok=Color3.fromRGB(80,200,120),bad=Color3.fromRGB(220,70,80)}
+local function corner(p,r) local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,r or 8); c.Parent=p end
+local function stroke(p,c) local s=Instance.new("UIStroke"); s.Color=c or T.stroke; s.Thickness=1; s.Parent=p end
+
+-- Hover tooltips for every module/control
+local TIPS = {
+	["Aimbot"]="Locks your aim toward valid targets while the aim key is held/toggled.",
+	["Silent Aim"]="Redirects shots to the target without fully moving your camera.",
+	["Aim Assist"]="Soft pull toward targets instead of a hard lock.",
+	["Magnet Aim"]="Stronger pull when your crosshair is already near the target.",
+	["Sticky Aim"]="Stays on the same target instead of swapping every frame.",
+	["Head Only"]="Forces aim part to Head when possible.",
+	["Humanize / Jitter"]="Adds small random movement so aim is less robotic.",
+	["Jitter Amount"]="How strong humanize shake is.",
+	["FOV"]="Aim field-of-view radius in pixels around crosshair/center.",
+	["Dynamic FOV"]="Temporarily widens FOV while aiming.",
+	["Dynamic FOV Add"]="Extra FOV pixels added when Dynamic FOV is on.",
+	["Smoothness"]="How fast aim moves to target (lower = slower/legit, higher = snappier).",
+	["Prediction"]="Leads moving targets using their velocity.",
+	["Assist Strength"]="How hard Aim Assist pulls.",
+	["Magnet Strength"]="How hard Magnet Aim pulls when close.",
+	["Hit Chance %"]="Chance each frame/shot actually applies aim/silent redirect.",
+	["Max Distance"]="Ignore players farther than this (studs).",
+	["Switch Delay"]="Minimum time before switching sticky targets.",
+	["Snap Blend"]="Extra snap boost when already close to the target.",
+	["Hipfire Smoothness"]="Aim speed used when not holding ADS (RMB).",
+	["Aim Method"]="Camera = rotate camera; Mouse = mousemoverel when available.",
+	["Team Check"]="Skip teammates.",
+	["Wall Check"]="Require line-of-sight through walls.",
+	["Visible Only"]="Only target players currently on-screen.",
+	["Ignore Friends"]="Skip Roblox friends.",
+	["Ignore Downed"]="Skip very low HP / downed players.",
+	["ADS Only"]="Aimbot only works while holding RMB (ADS).",
+	["First Bullet Accuracy"]="Not implemented in this build.",
+	["Priority"]="How targets are ranked: crosshair, distance, or lowest HP.",
+	["Lock Part"]="Body part to aim at (Head / Torso / Random).",
+	["Aim Mode"]="Hold = must hold key; Toggle = press to on/off.",
+	["Show FOV"]="Draws the aim FOV circle.",
+	["Aim Key"]="Key/mouse button that activates aimbot.",
+	["Triggerbot"]="Auto-clicks when crosshair ray hits a valid player.",
+	["Auto Shoot"]="Keeps firing while a valid aim target exists.",
+	["Double Tap"]="Fires a second click shortly after the first.",
+	["Kill Aura"]="Activates your tool when an enemy is in range.",
+	["Aura Range"]="Kill Aura distance in studs.",
+	["Melee Aimbot"]="Not implemented in this build.",
+	["Force Head Close"]="Force head aim when enemy is within Close Range.",
+	["Close Range"]="Distance used by Force Head Close.",
+	["Auto Wall (soft)"]="Allows soft wall penetration checks when enabled.",
+	["Hitbox Expand"]="Grows enemy parts on your client for easier hits.",
+	["Hitbox Size"]="Expanded hitbox size.",
+	["Anti Recoil"]="Counters vertical recoil while shooting.",
+	["Lock Pitch"]="Keeps camera pitch stable while anti-recoil is active.",
+	["Vertical Strength"]="How hard anti-recoil pushes mouse down.",
+	["Horizontal Strength"]="Sideways anti-recoil compensation.",
+	["Pattern Ramp"]="Increases compensation the longer you spray.",
+	["Pattern Scale"]="How fast pattern ramp grows.",
+	["Pattern Cap"]="Max multiplier for pattern ramp.",
+	["RCS After Shots"]="Not implemented in this build.",
+	["No Spread"]="Zeros weapon spread values when found.",
+	["Rapid Fire"]="Lowers fire delay/cooldown values when found.",
+	["Auto Reload"]="Not implemented in this build.",
+	["Chams"]="Highlight players (see-through style).",
+	["Name ESP"]="Shows player names above them.",
+	["Distance ESP"]="Shows distance in studs.",
+	["Health ESP"]="Shows health.",
+	["Weapon ESP"]="Shows held tool name.",
+	["Box ESP"]="2D boxes around players.",
+	["Tracers"]="Lines from screen bottom to players.",
+	["Radar"]="Top-down radar of nearby players.",
+	["Hit Markers"]="Not implemented in this build.",
+	["Damage Numbers"]="Not implemented in this build.",
+	["Bullet Tracers"]="Not implemented in this build.",
+	["Crosshair"]="Custom crosshair overlay.",
+	["Speed"]="Overrides local walkspeed.",
+	["Speed Value"]="Walkspeed when Speed is on.",
+	["Fly"]="Free-fly with WASD + Space/Ctrl.",
+	["Fly Speed"]="Fly movement speed.",
+	["Inf Jump"]="Jump again in the air.",
+	["Bhop"]="Auto-jump while holding Space on ground.",
+	["Edge Jump"]="Jumps when walking off ledges.",
+	["Jump Power"]="Overrides jump power.",
+	["Jump Value"]="Jump power amount.",
+	["Long Jump"]="Boosts forward/up on jump request.",
+	["Air Strafe"]="Lets you redirect momentum in air with A/D.",
+	["Crouch Spam"]="Rapidly toggles hip height.",
+	["Noclip"]="Disables local collision.",
+	["Dash (Q)"]="Launch forward with Q.",
+	["Dash Power"]="Dash strength.",
+	["Orbit"]="Orbits around current target.",
+	["Orbit Speed"]="How fast orbit rotates.",
+	["Orbit Range"]="Orbit radius.",
+	["Click TP"]="Click to teleport to mouse hit (when enabled).",
+	["Infinite Ammo"]="Tries to keep ammo values high (client).",
+	["God Mode (local only)"]="Keeps local health full (client only).",
+	["God Mode"]="Keeps local health full (client only).",
+	["Anti AFK"]="Clicks to prevent idle kick.",
+	["No Fall Damage"]="Disables falling/ragdoll states locally.",
+	["Anti Stun / Slow"]="Tries to keep walkspeed from being slowed.",
+	["Auto Heal (local only)"]="Tops up local health when low (client only).",
+	["Auto Heal"]="Tops up local health when low (client only).",
+	["Inf Stamina (best effort)"]="Not implemented in this build.",
+	["Spinbot"]="Spins character yaw.",
+	["Spin Speed"]="Spin rate.",
+	["Anti Aim"]="Random small yaw offsets.",
+	["Fullbright"]="Brightens the map.",
+	["No Fog"]="Removes fog distance limit.",
+	["No Shadows"]="Disables global shadows.",
+	["No Particles"]="Disables particles/trails/smoke.",
+	["No Flash / Blind"]="Hides common flash/blind GUI overlays.",
+	["Time Changer"]="Overrides Lighting.ClockTime.",
+	["Clock Time"]="Time of day value.",
+	["Custom FOV"]="Overrides camera field of view.",
+	["FOV Value"]="Camera FOV amount.",
+	["Third Person"]="Forces third-person zoom distances.",
+	["Freecam (Shift+P)"]="Detach camera; Shift+P toggles freecam.",
+	["Watermark"]="FPS/ping overlay.",
+	["Panic Key"]="Key that disables combat features.",
+	["Chat Spam"]="Repeatedly sends chat message.",
+	["Chat Delay"]="Seconds between spam messages.",
+	["Emote Spam (best effort)"]="Not implemented in this build.",
+	["Auto Execute on Inject"]="Loads a saved profile automatically next script inject.",
+	["Profile name to auto-load"]="Which saved profile auto-execute should load.",
+	["Trigger Delay"]="Seconds between triggerbot shots.",
+	["Trigger Range"]="How close crosshair must be to a player (pixels) to fire.",
+	["Auto Shoot Delay"]="Seconds between auto-shoot clicks.",
+	["Double Tap Delay"]="Delay between first and second click.",
+	["Chams Fill"]="Highlight fill transparency (0=solid, 1=invisible).",
+	["Chams Outline"]="Highlight outline transparency.",
+	["Radar Scale"]="Radar zoom (higher = more zoomed out).",
+	["ESP Max Dist"]="Hide ESP beyond this distance.",
+	["Hit Marker Size"]="Size of the X hit marker.",
+	["Hit Marker Time"]="How long hit marker stays on screen.",
+	["Trace Time"]="How long bullet traces stay visible.",
+	["Crosshair Size"]="Length of crosshair lines.",
+	["Crosshair Gap"]="Gap at center of crosshair.",
+	["Silent FOV Only"]="Silent aim only redirects if target is inside FOV.",
+	["Reload Key"]="Key pressed for auto-reload.",
+}
+
+
+
+
+local Gui=Instance.new("ScreenGui"); Gui.Name="CombatUltra"; Gui.ResetOnSpawn=false; Gui.DisplayOrder=999; Gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+pcall(function() Gui.Parent=game:GetService("CoreGui") end); if not Gui.Parent then Gui.Parent=LP:WaitForChild("PlayerGui") end
+
+-- Tooltip UI (after Gui exists)
+local Tip = Instance.new("Frame")
+Tip.Name = "ModuleTip"
+Tip.Size = UDim2.new(0, 280, 0, 0)
+Tip.AutomaticSize = Enum.AutomaticSize.Y
+Tip.BackgroundColor3 = Color3.fromRGB(22, 26, 34)
+Tip.BorderSizePixel = 0
+Tip.Visible = false
+Tip.ZIndex = 200
+Tip.Parent = Gui
+corner(Tip, 8)
+local tipStroke = Instance.new("UIStroke", Tip)
+tipStroke.Color = Color3.fromRGB(70, 120, 200)
+local tipPad = Instance.new("UIPadding", Tip)
+tipPad.PaddingTop = UDim.new(0, 8)
+tipPad.PaddingBottom = UDim.new(0, 8)
+tipPad.PaddingLeft = UDim.new(0, 10)
+tipPad.PaddingRight = UDim.new(0, 10)
+local tipTitle = Instance.new("TextLabel", Tip)
+tipTitle.Size = UDim2.new(1, 0, 0, 16)
+tipTitle.BackgroundTransparency = 1
+tipTitle.TextColor3 = Color3.fromRGB(160, 200, 255)
+tipTitle.Font = Enum.Font.GothamBold
+tipTitle.TextSize = 12
+tipTitle.TextXAlignment = Enum.TextXAlignment.Left
+tipTitle.ZIndex = 201
+local tipBody = Instance.new("TextLabel", Tip)
+tipBody.Size = UDim2.new(1, 0, 0, 0)
+tipBody.Position = UDim2.new(0, 0, 0, 18)
+tipBody.AutomaticSize = Enum.AutomaticSize.Y
+tipBody.BackgroundTransparency = 1
+tipBody.TextColor3 = Color3.fromRGB(210, 210, 220)
+tipBody.Font = Enum.Font.Gotham
+tipBody.TextSize = 11
+tipBody.TextXAlignment = Enum.TextXAlignment.Left
+tipBody.TextWrapped = true
+tipBody.ZIndex = 201
+local tipConn
+local function showTip(name)
+	local d = TIPS[name]
+	if not d then Tip.Visible = false return end
+	tipTitle.Text = name
+	tipBody.Text = d
+	Tip.Visible = true
+	if tipConn then tipConn:Disconnect() end
+	tipConn = RS.RenderStepped:Connect(function()
+		if not Tip.Visible then return end
+		local mp = UIS:GetMouseLocation()
+		local cam = workspace.CurrentCamera
+		local vs = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+		local x, y = mp.X + 16, mp.Y + 16
+		if x + 290 > vs.X then x = mp.X - 296 end
+		if y + 110 > vs.Y then y = mp.Y - 100 end
+		Tip.Position = UDim2.fromOffset(x, y)
+	end)
+end
+local function hideTip()
+	Tip.Visible = false
+	if tipConn then tipConn:Disconnect(); tipConn = nil end
+end
+local function bindTip(row, name)
+	if not row or not name then return end
+	row.MouseEnter:Connect(function() showTip(name) end)
+	row.MouseLeave:Connect(hideTip)
+end
+
+
+local Main=Instance.new("Frame",Gui); Main.Size=UDim2.new(0,760,0,540); Main.Position=UDim2.new(.5,-380,.5,-270); Main.BackgroundColor3=T.bg; Main.BorderSizePixel=0; Main.Active=true; Main.Draggable=true; corner(Main,12); stroke(Main)
+
+local function pointerOverMenu()
+    if not Main.Visible then return false end
+    local point=UIS:GetMouseLocation()-game:GetService("GuiService"):GetGuiInset()
+    local origin,size=Main.AbsolutePosition,Main.AbsoluteSize
+    return point.X>=origin.X and point.Y>=origin.Y and point.X<=origin.X+size.X and point.Y<=origin.Y+size.Y
+end
+
+local Top=Instance.new("Frame",Main); Top.Size=UDim2.new(1,0,0,44); Top.BackgroundColor3=T.panel; Top.BorderSizePixel=0; corner(Top,12)
+local tf=Instance.new("Frame",Top); tf.Size=UDim2.new(1,0,0,14); tf.Position=UDim2.new(0,0,1,-14); tf.BackgroundColor3=T.panel; tf.BorderSizePixel=0
+local Title=Instance.new("TextLabel",Top); Title.Size=UDim2.new(0,220,1,0); Title.Position=UDim2.new(0,16,0,0); Title.BackgroundTransparency=1; Title.Text="COMBAT ULTRA"; Title.TextColor3=T.txt; Title.Font=Enum.Font.GothamBold; Title.TextSize=15; Title.TextXAlignment=Enum.TextXAlignment.Left
+local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="ALL"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
+local Close=Instance.new("TextButton",Top); Close.Size=UDim2.new(0,28,0,28); Close.Position=UDim2.new(1,-36,0.5,-14); Close.BackgroundColor3=T.p2; Close.Text="x"; Close.TextColor3=T.dim; Close.Font=Enum.Font.GothamBold; Close.TextSize=16; corner(Close,6)
+connect(Close.MouseButton1Click,function() Main.Visible=false end)
+
+local Side=Instance.new("ScrollingFrame",Main); Side.Size=UDim2.new(0,150,1,-44); Side.Position=UDim2.new(0,0,0,44); Side.BackgroundColor3=T.panel; Side.BorderSizePixel=0; Side.ScrollBarThickness=2; Side.CanvasSize=UDim2.new(0,0,0,400)
+local SideList=Instance.new("UIListLayout",Side); SideList.Padding=UDim.new(0,4); local SidePad=Instance.new("UIPadding",Side); SidePad.PaddingTop=UDim.new(0,10); SidePad.PaddingLeft=UDim.new(0,8); SidePad.PaddingRight=UDim.new(0,8)
+
+local Content=Instance.new("Frame",Main); Content.Size=UDim2.new(1,-150,1,-44); Content.Position=UDim2.new(0,150,0,44); Content.BackgroundColor3=T.bg; Content.BorderSizePixel=0; Content.ClipsDescendants=true
+local PageTitle=Instance.new("TextLabel",Content); PageTitle.Size=UDim2.new(1,-24,0,22); PageTitle.Position=UDim2.new(0,16,0,10); PageTitle.BackgroundTransparency=1; PageTitle.Text="Aim"; PageTitle.TextColor3=T.txt; PageTitle.Font=Enum.Font.GothamBold; PageTitle.TextSize=18; PageTitle.TextXAlignment=Enum.TextXAlignment.Left
+local PageDesc=Instance.new("TextLabel",Content); PageDesc.Size=UDim2.new(1,-24,0,14); PageDesc.Position=UDim2.new(0,16,0,32); PageDesc.BackgroundTransparency=1; PageDesc.Text=""; PageDesc.TextColor3=T.mut; PageDesc.Font=Enum.Font.Gotham; PageDesc.TextSize=11; PageDesc.TextXAlignment=Enum.TextXAlignment.Left
+local Scroll=Instance.new("ScrollingFrame",Content); Scroll.Size=UDim2.new(1,0,1,-52); Scroll.Position=UDim2.new(0,0,0,52); Scroll.BackgroundTransparency=1; Scroll.BorderSizePixel=0; Scroll.ScrollBarThickness=3; Scroll.AutomaticCanvasSize=Enum.AutomaticSize.Y; Scroll.CanvasSize=UDim2.new(0,0,0,0)
+local SPad=Instance.new("UIPadding",Scroll); SPad.PaddingLeft=UDim.new(0,14); SPad.PaddingRight=UDim.new(0,14); SPad.PaddingBottom=UDim.new(0,16); SPad.PaddingTop=UDim.new(0,4)
+local SList=Instance.new("UIListLayout",Scroll); SList.Padding=UDim.new(0,10); SList.SortOrder=Enum.SortOrder.LayoutOrder
+
+local cats={
+	{id="aim",n="Aim",d="Lock, assist, filters, humanize"},
+	{id="rage",n="Rage",d="Hitbox, aura, force head, taps"},
+	{id="legit",n="Legit",d="Recoil, spread, weapon helpers"},
+	{id="visuals",n="Visuals",d="ESP, radar, hit markers"},
+	{id="move",n="Move",d="Speed, fly, dash, parkour"},
+	{id="player",n="Player",d="God, ammo, spin, anti-aim"},
+	{id="world",n="World",d="Lighting, FOV, freecam"},
+	{id="util",n="Util",d="Server, panic, watermark"},
+	{id="social",n="Social",d="Chat and emote tools"},
+	{id="config",n="Configs",d="Save, load, import, export and reset profiles"},
+}
+local pages, sideBtns, cur, ord = {}, {}, nil, {}
+local function nord(p) ord[p]=(ord[p] or 0)+1; return ord[p] end
+
+for i,c in ipairs(cats) do
+	local b=Instance.new("TextButton",Side); b.Size=UDim2.new(1,0,0,32); b.BackgroundColor3=T.p2; b.BackgroundTransparency=1; b.Text=""; b.LayoutOrder=i; corner(b,8)
+	local lab=Instance.new("TextLabel",b); lab.Name="L"; lab.Size=UDim2.new(1,-12,1,0); lab.Position=UDim2.new(0,10,0,0); lab.BackgroundTransparency=1; lab.Text=c.n; lab.TextColor3=T.dim; lab.Font=Enum.Font.GothamMedium; lab.TextSize=13; lab.TextXAlignment=Enum.TextXAlignment.Left
+	sideBtns[c.id]=b
+	local page=Instance.new("Frame",Scroll); page.Name=c.id; page.Size=UDim2.new(1,0,0,0); page.AutomaticSize=Enum.AutomaticSize.Y; page.BackgroundTransparency=1; page.Visible=false; page.LayoutOrder=1
+	local pl=Instance.new("UIListLayout",page); pl.Padding=UDim.new(0,10); pl.SortOrder=Enum.SortOrder.LayoutOrder
+	pages[c.id]=page
+	connect(b.MouseButton1Click,function()
+		cur=c.id; PageTitle.Text=c.n; PageDesc.Text=c.d
+		for id,pg in pairs(pages) do pg.Visible=(id==c.id) end
+		for id,btn in pairs(sideBtns) do
+			local on=id==c.id; btn.BackgroundTransparency=on and 0 or 1; btn.BackgroundColor3=T.p2; btn.L.TextColor3=on and T.txt or T.dim
+		end
+	end)
+end
+Side.CanvasSize=UDim2.new(0,0,0,#cats*36+20)
+
+local function card(page,title,sub)
+	local c=Instance.new("Frame",page); c.Size=UDim2.new(1,0,0,0); c.AutomaticSize=Enum.AutomaticSize.Y; c.BackgroundColor3=T.card; c.BorderSizePixel=0; c.LayoutOrder=nord(page); corner(c,10); stroke(c)
+	local p=Instance.new("UIPadding",c); p.PaddingTop=UDim.new(0,10); p.PaddingBottom=UDim.new(0,10); p.PaddingLeft=UDim.new(0,12); p.PaddingRight=UDim.new(0,12)
+	local l=Instance.new("UIListLayout",c); l.Padding=UDim.new(0,6); l.SortOrder=Enum.SortOrder.LayoutOrder
+	local h=Instance.new("TextLabel",c); h.Size=UDim2.new(1,0,0,16); h.BackgroundTransparency=1; h.Text=title; h.TextColor3=T.txt; h.Font=Enum.Font.GothamBold; h.TextSize=13; h.TextXAlignment=Enum.TextXAlignment.Left; h.LayoutOrder=0
+	if sub then local s=Instance.new("TextLabel",c); s.Size=UDim2.new(1,0,0,12); s.BackgroundTransparency=1; s.Text=sub; s.TextColor3=T.mut; s.Font=Enum.Font.Gotham; s.TextSize=10; s.TextXAlignment=Enum.TextXAlignment.Left; s.LayoutOrder=0 end
+	local d=Instance.new("Frame",c); d.Size=UDim2.new(1,0,0,1); d.BackgroundColor3=T.stroke; d.BorderSizePixel=0; d.LayoutOrder=1
+	return c
+end
+
+local modulePanels={}
+local settingsOwner={
+    StickyAim="Aimbot",HeadOnly="Aimbot",Humanize="Aimbot",Jitter="Humanize",
+    FOV="Aimbot",DynFOV="Aimbot",DynFOVAdd="DynFOV",Smooth="Aimbot",Prediction="Aimbot",
+    AssistStr="AimAssist",MagnetStr="MagnetAim",HitChance="SilentAim",MaxDist="Aimbot",
+    SwitchDelay="Aimbot",SnapBlend="Aimbot",HipfireSmooth="Aimbot",AimMethod="Aimbot",
+    TeamCheck="Aimbot",WallCheck="Aimbot",VisibleOnly="Aimbot",IgnoreFriends="Aimbot",
+    IgnoreDowned="Aimbot",ADSOnly="Aimbot",FirstBullet="Aimbot",Priority="Aimbot",
+    LockPart="Aimbot",AimMode="Aimbot",ShowFOV="Aimbot",AimKey="Aimbot",
+    SilentFovOnly="SilentAim",
+    TriggerDelay="Triggerbot",TriggerRange="Triggerbot",
+    AutoShootDelay="AutoShoot",
+    DoubleTapDelay="DoubleTap",
+    AuraRange="KillAura",CloseRange="ForceHeadClose",HitboxSize="Hitbox",
+    LockPitch="AntiRecoil",VStr="AntiRecoil",HStr="AntiRecoil",Pattern="AntiRecoil",
+    PatternScale="Pattern",PatternCap="Pattern",RCSAfter="AntiRecoil",
+    SpeedVal="Speed",FlySpeed="Fly",JumpVal="JumpPow",DashPower="Dash",
+    OrbitSpd="Orbit",OrbitRng="Orbit",SpinSpd="Spinbot",TimeVal="TimeChanger",
+    FOVVal="CustomFOV",ChatDelay="ChatSpam",
+    ChamsFill="Chams",ChamsOutline="Chams",
+    CrosshairSize="Crosshair",CrosshairGap="Crosshair",
+    RadarScale="Radar",
+    ESPMaxDist="NameESP",
+    HitMarkerSize="HitMarker",HitMarkerTime="HitMarker",
+    BulletTraceTime="BulletTrace",
+    AutoReloadKey="AutoReload",
+}
+local function settingsParent(parent,key)
+    return modulePanels[settingsOwner[key]] or parent
+end
+
+local function tog(parent,name,key,cb)
+    if key=="God" or key=="AutoHeal" then name=name.." (local only)" end
+    if cb then configCallbacks[key]=cb end
+    parent=settingsParent(parent,key)
+    local wrapper=Instance.new("Frame",parent)
+    wrapper.Name="Module_"..key; wrapper.Size=UDim2.new(1,0,0,0); wrapper.AutomaticSize=Enum.AutomaticSize.Y
+    wrapper.BackgroundTransparency=1; wrapper.LayoutOrder=nord(parent)
+    local layout=Instance.new("UIListLayout",wrapper); layout.SortOrder=Enum.SortOrder.LayoutOrder; layout.Padding=UDim.new(0,4)
+    local body=Instance.new("Frame",wrapper); body.Name="Settings"; body.Size=UDim2.new(1,0,0,0); body.AutomaticSize=Enum.AutomaticSize.Y; body.BackgroundTransparency=1; body.Visible=false; body.LayoutOrder=1
+    local bodyLayout=Instance.new("UIListLayout",body); bodyLayout.SortOrder=Enum.SortOrder.LayoutOrder; bodyLayout.Padding=UDim.new(0,6)
+    local padding=Instance.new("UIPadding",body); padding.PaddingLeft=UDim.new(0,12); padding.PaddingBottom=UDim.new(0,6)
+    modulePanels[key]=body
+    local r=Instance.new("Frame",wrapper); r.Size=UDim2.new(1,0,0,28); r.BackgroundTransparency=1; r.LayoutOrder=0
+	local lab=Instance.new("TextLabel",r); lab.Size=UDim2.new(1,-82,1,0); lab.Position=UDim2.fromOffset(28,0); lab.BackgroundTransparency=1; lab.Text=name..(unsupported[key] and " (not implemented)" or ""); lab.TextColor3=unsupported[key] and T.mut or T.txt; lab.Font=Enum.Font.Gotham; lab.TextSize=12; lab.TextXAlignment=Enum.TextXAlignment.Left
+	local track=Instance.new("Frame",r); track.Size=UDim2.new(0,36,0,18); track.Position=UDim2.new(1,-36,0.5,-9); track.BackgroundColor3=S[key] and T.acc or Color3.fromRGB(45,45,55); track.BorderSizePixel=0; corner(track,9)
+	local knob=Instance.new("Frame",track); knob.Size=UDim2.new(0,14,0,14); knob.Position=S[key] and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7); knob.BackgroundColor3=Color3.fromRGB(255,255,255); knob.BorderSizePixel=0; corner(knob,7)
+	local b=Instance.new("TextButton",r); b.Size=UDim2.new(1,-28,1,0); b.Position=UDim2.fromOffset(28,0); b.BackgroundTransparency=1; b.Text=""
+    local arrow=Instance.new("TextButton",r); arrow.Name="ExpandSettings"; arrow.Size=UDim2.fromOffset(24,24); arrow.Position=UDim2.new(0,0,0.5,-12); arrow.BackgroundTransparency=1; arrow.Text=">"; arrow.TextColor3=T.acc; arrow.Font=Enum.Font.GothamBold; arrow.TextSize=16
+    connect(arrow.MouseButton1Click,function() body.Visible=not body.Visible; arrow.Rotation=body.Visible and 90 or 0 end)
+	table.insert(configRefresh,function() track.BackgroundColor3=S[key] and T.acc or Color3.fromRGB(45,45,55); knob.Position=S[key] and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7) end)
+	connect(b.MouseButton1Click,function()
+		if unsupported[key] then return end; S[key]=not S[key]; if not S[key] then restoreModule(key) end; if key=="NoParticles" then particlesApplied=false end; track.BackgroundColor3=S[key] and T.acc or Color3.fromRGB(45,45,55); knob.Position=S[key] and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7); if cb then cb(S[key]) end
+	end)
+	bindTip(r, name)
+end
+
+local function slider(parent,name,key,min,max,dec)
+    if key=="RCSAfter" then name=name.." (not implemented)" end
+	parent=settingsParent(parent,key)
+	configRules[key]={min=min,max=max,dec=dec}
+	local r=Instance.new("Frame",parent); r.Size=UDim2.new(1,0,0,40); r.BackgroundTransparency=1; r.LayoutOrder=nord(parent)
+	local lab=Instance.new("TextLabel",r); lab.Size=UDim2.new(0.7,0,0,14); lab.BackgroundTransparency=1; lab.Text=name; lab.TextColor3=T.txt; lab.Font=Enum.Font.Gotham; lab.TextSize=12; lab.TextXAlignment=Enum.TextXAlignment.Left
+	local function fmt(v) if dec>0 then return string.format("%."..dec.."f",v) end return tostring(math.floor(v+.5)) end
+	local val=Instance.new("TextLabel",r); val.Size=UDim2.new(0.3,0,0,14); val.Position=UDim2.new(0.7,0,0,0); val.BackgroundTransparency=1; val.Text=fmt(S[key]); val.TextColor3=T.acc; val.Font=Enum.Font.GothamBold; val.TextSize=11; val.TextXAlignment=Enum.TextXAlignment.Right
+	local bar=Instance.new("Frame",r); bar.Size=UDim2.new(1,0,0,7); bar.Position=UDim2.new(0,0,0,22); bar.BackgroundColor3=Color3.fromRGB(40,40,52); bar.BorderSizePixel=0; corner(bar,4)
+	local fill=Instance.new("Frame",bar); local pct=(S[key]-min)/(max-min); fill.Size=UDim2.new(pct,0,1,0); fill.BackgroundColor3=T.acc; fill.BorderSizePixel=0; corner(fill,4)
+	table.insert(configRefresh,function() fill.Size=UDim2.new(math.clamp((S[key]-min)/(max-min),0,1),0,1,0); val.Text=fmt(S[key]) end)
+	local hold=false
+	local function upd(x)
+        if key=="RCSAfter" then return end
+		local rel=math.clamp((x-bar.AbsolutePosition.X)/math.max(bar.AbsoluteSize.X,1),0,1)
+		local v=min+(max-min)*rel; if dec==0 then v=math.floor(v+.5) else v=math.floor(v*10^dec+.5)/10^dec end
+		S[key]=v; fill.Size=UDim2.new(rel,0,1,0); val.Text=fmt(v)
+	end
+	connect(bar.InputBegan,function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then hold=true; upd(i.Position.X) end end)
+	connect(UIS.InputChanged,function(i) if hold and i.UserInputType==Enum.UserInputType.MouseMovement then upd(i.Position.X) end end)
+	connect(UIS.InputEnded,function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then hold=false end end)
+	bindTip(r, name)
+end
+
+local function drop(parent,name,key,options)
+	parent=settingsParent(parent,key)
+	configRules[key]={options=options}
+	local r=Instance.new("Frame",parent); r.Size=UDim2.new(1,0,0,28); r.BackgroundTransparency=1; r.LayoutOrder=nord(parent)
+	local lab=Instance.new("TextLabel",r); lab.Size=UDim2.new(0.5,0,1,0); lab.BackgroundTransparency=1; lab.Text=name; lab.TextColor3=T.txt; lab.Font=Enum.Font.Gotham; lab.TextSize=12; lab.TextXAlignment=Enum.TextXAlignment.Left
+	local b=Instance.new("TextButton",r); b.Size=UDim2.new(0,120,0,24); b.Position=UDim2.new(1,-120,0.5,-12); b.BackgroundColor3=T.p2; b.Text=tostring(S[key]).." ▾"; b.TextColor3=T.txt; b.Font=Enum.Font.GothamBold; b.TextSize=11; corner(b,6)
+	local idx=table.find(options,S[key]) or 1
+	table.insert(configRefresh,function() idx=table.find(options,S[key]) or 1; b.Text=tostring(S[key]).." ▾" end)
+	connect(b.MouseButton1Click,function() idx=(idx%#options)+1; S[key]=options[idx]; if key=="LockPart" then S.HeadOnly=(S[key]=="Head"); for _,refresh in ipairs(configRefresh) do pcall(refresh) end end; b.Text=tostring(S[key]).." ▾" end)
+	bindTip(r, name)
+end
+
+local function keybind(parent,name,setFn,defaultText,configKey)
+	parent=settingsParent(parent,configKey)
+	local r=Instance.new("Frame",parent); r.Size=UDim2.new(1,0,0,28); r.BackgroundTransparency=1; r.LayoutOrder=nord(parent)
+	local lab=Instance.new("TextLabel",r); lab.Size=UDim2.new(0.5,0,1,0); lab.BackgroundTransparency=1; lab.Text=name; lab.TextColor3=T.txt; lab.Font=Enum.Font.Gotham; lab.TextSize=12; lab.TextXAlignment=Enum.TextXAlignment.Left
+	local b=Instance.new("TextButton",r); b.Size=UDim2.new(0,120,0,24); b.Position=UDim2.new(1,-120,0.5,-12); b.BackgroundColor3=T.p2; b.Text=defaultText; b.TextColor3=T.acc; b.Font=Enum.Font.GothamBold; b.TextSize=11; corner(b,6)
+	local listen=false
+	if configKey then table.insert(configRefresh,function() listen=false; bindingCapture=false; b.Text=S[configKey].Name end) end
+	connect(b.MouseButton1Click,function()
+        if cancelCapture then cancelCapture() end
+        listen=true; bindingCapture=true; b.Text="..."
+        cancelCapture=function() listen=false; bindingCapture=false; b.Text=configKey and S[configKey].Name or defaultText end
+    end)
+	connect(UIS.InputBegan,function(i)
+		if not listen then return end
+        if configKey=="PanicKey" and i.UserInputType~=Enum.UserInputType.Keyboard then return end
+        if i.KeyCode==Enum.KeyCode.Escape then listen=false; b.Text=configKey and S[configKey].Name or defaultText; task.defer(function() bindingCapture=false end); return end
+		if i.UserInputType==Enum.UserInputType.Keyboard then listen=false; b.Text=i.KeyCode.Name; setFn(i.KeyCode,false); task.defer(function() bindingCapture=false end)
+		elseif i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.MouseButton2 then listen=false; b.Text=i.UserInputType.Name; setFn(i.UserInputType,true); task.defer(function() bindingCapture=false end) end
+	end)
+	bindTip(r, name)
+end
+
+local function btn(parent,name,fn,danger)
+	local r=Instance.new("Frame",parent); r.Size=UDim2.new(1,0,0,32); r.BackgroundTransparency=1; r.LayoutOrder=nord(parent)
+	local b=Instance.new("TextButton",r); b.Size=UDim2.new(1,0,1,0); b.BackgroundColor3=danger and T.bad or T.p2; b.Text=name; b.TextColor3=T.txt; b.Font=Enum.Font.GothamBold; b.TextSize=12; corner(b,8)
+	connect(b.MouseButton1Click,fn)
+	bindTip(r, name)
+end
+
+-- AIM
+do local p=pages.aim
+	local c=card(p,"Targeting","Main aim modules")
+	tog(c,"Aimbot","Aimbot",function(v) if not v then S.AimOn=false end end)
+	tog(c,"Silent Aim","SilentAim")
+	tog(c,"Aim Assist","AimAssist")
+	tog(c,"Magnet Aim","MagnetAim")
+	tog(c,"Sticky Aim","StickyAim")
+	tog(c,"Head Only","HeadOnly")
+	tog(c,"Humanize / Jitter","Humanize")
+	slider(c,"Jitter Amount","Jitter",0,2,1)
+	local c2=card(p,"Values","")
+	slider(c2,"FOV","FOV",40,400,0)
+	tog(c2,"Dynamic FOV","DynFOV")
+	slider(c2,"Dynamic FOV Add","DynFOVAdd",0,120,0)
+	slider(c2,"Smoothness","Smooth",0.05,1,2)
+	slider(c2,"Prediction","Prediction",0,0.4,2)
+	slider(c2,"Assist Strength","AssistStr",0.02,0.3,2)
+	slider(c2,"Magnet Strength","MagnetStr",0.1,0.8,2)
+	slider(c2,"Hit Chance %","HitChance",1,100,0)
+	tog(c2,"Silent FOV Only","SilentFovOnly")
+	slider(c2,"Max Distance","MaxDist",50,4000,0)
+	slider(c2,"Switch Delay","SwitchDelay",0,0.5,2)
+	slider(c2,"Snap Blend","SnapBlend",0,1,2)
+	slider(c2,"Hipfire Smoothness","HipfireSmooth",0.05,1,2)
+	drop(c2,"Aim Method","AimMethod",{"Camera","Mouse"})
+	local c3=card(p,"Filters","")
+	tog(c3,"Team Check","TeamCheck")
+	tog(c3,"Wall Check","WallCheck")
+	tog(c3,"Visible Only","VisibleOnly")
+	tog(c3,"Ignore Friends","IgnoreFriends")
+	tog(c3,"Ignore Downed","IgnoreDowned")
+	tog(c3,"ADS Only","ADSOnly")
+	tog(c3,"First Bullet Accuracy","FirstBullet")
+	drop(c3,"Priority","Priority",{"Crosshair","Distance","LowestHP"})
+	drop(c3,"Lock Part","LockPart",{"Head","Torso","Random"})
+	drop(c3,"Aim Mode","AimMode",{"Hold","Toggle"})
+	tog(c3,"Show FOV","ShowFOV")
+	keybind(c3,"Aim Key",function(k,m) S.AimKey=k; S.AimKeyMouse=m end,"MouseButton2","AimKey")
+end
+
+-- RAGE
+do local p=pages.rage
+	local c=card(p,"Combat","")
+	tog(c,"Triggerbot","Triggerbot")
+	slider(c,"Trigger Delay","TriggerDelay",0.02,0.25,2)
+	slider(c,"Trigger Range","TriggerRange",5,80,0)
+	tog(c,"Auto Shoot","AutoShoot")
+	slider(c,"Auto Shoot Delay","AutoShootDelay",0.02,0.25,2)
+	tog(c,"Double Tap","DoubleTap")
+	slider(c,"Double Tap Delay","DoubleTapDelay",0.02,0.15,2)
+	tog(c,"Kill Aura","KillAura")
+	slider(c,"Aura Range","AuraRange",5,40,0)
+	tog(c,"Melee Aimbot","MeleeAim")
+	tog(c,"Force Head Close","ForceHeadClose")
+	slider(c,"Close Range","CloseRange",5,60,0)
+	tog(c,"Auto Wall (soft)","AutoWall")
+	local c2=card(p,"Hitbox","")
+	tog(c2,"Hitbox Expand","Hitbox")
+	slider(c2,"Hitbox Size","HitboxSize",2,30,0)
+end
+
+-- LEGIT
+do local p=pages.legit
+	local c=card(p,"Recoil","")
+	tog(c,"Anti Recoil","AntiRecoil")
+	tog(c,"Lock Pitch","LockPitch")
+	slider(c,"Vertical Strength","VStr",0,15,1)
+	slider(c,"Horizontal Strength","HStr",0,10,1)
+	tog(c,"Pattern Ramp","Pattern")
+	slider(c,"Pattern Scale","PatternScale",0.01,0.5,2)
+	slider(c,"Pattern Cap","PatternCap",1,8,1)
+	slider(c,"RCS After Shots","RCSAfter",0,10,0)
+	local c2=card(p,"Weapon","")
+	tog(c2,"No Spread","NoSpread")
+	tog(c2,"Rapid Fire","RapidFire")
+	tog(c2,"Auto Reload","AutoReload")
+	keybind(c2,"Reload Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.AutoReloadKey=k end end,"R","AutoReloadKey")
+end
+
+-- VISUALS
+do local p=pages.visuals
+	local c=card(p,"ESP","")
+	tog(c,"Chams","Chams")
+	slider(c,"Chams Fill","ChamsFill",0,1,2)
+	slider(c,"Chams Outline","ChamsOutline",0,1,2)
+	tog(c,"Name ESP","NameESP")
+	tog(c,"Distance ESP","DistESP")
+	tog(c,"Health ESP","HPESP")
+	tog(c,"Weapon ESP","WeaponESP")
+	tog(c,"Box ESP","BoxESP")
+	tog(c,"Tracers","Tracers")
+	tog(c,"Radar","Radar")
+	slider(c,"Radar Scale","RadarScale",1,5,1)
+	slider(c,"ESP Max Dist","ESPMaxDist",50,4000,0)
+	local c2=card(p,"Feedback","")
+	tog(c2,"Hit Markers","HitMarker")
+	slider(c2,"Hit Marker Size","HitMarkerSize",8,40,0)
+	slider(c2,"Hit Marker Time","HitMarkerTime",0.05,0.4,2)
+	tog(c2,"Damage Numbers","DmgNum")
+	tog(c2,"Bullet Tracers","BulletTrace")
+	slider(c2,"Trace Time","BulletTraceTime",0.05,0.5,2)
+	tog(c2,"Crosshair","Crosshair")
+	slider(c2,"Crosshair Size","CrosshairSize",2,20,0)
+	slider(c2,"Crosshair Gap","CrosshairGap",0,12,0)
+end
+
+-- MOVE
+do local p=pages.move
+	local c=card(p,"Speed / Fly","")
+	tog(c,"Speed","Speed"); slider(c,"Speed Value","SpeedVal",16,200,0)
+	tog(c,"Fly","Fly",function(v) if not v and BV then BV:Destroy() BV=nil end if not v and BG then BG:Destroy() BG=nil end end)
+	slider(c,"Fly Speed","FlySpeed",20,200,0)
+	local c2=card(p,"Parkour","")
+	tog(c2,"Inf Jump","InfJump"); tog(c2,"Bhop","Bhop"); tog(c2,"Edge Jump","EdgeJump")
+	tog(c2,"Jump Power","JumpPow"); slider(c2,"Jump Value","JumpVal",50,300,0)
+	tog(c2,"Long Jump","LongJump"); tog(c2,"Air Strafe","AirStrafe"); tog(c2,"Crouch Spam","CrouchSpam")
+	tog(c2,"Noclip","Noclip"); tog(c2,"Dash (Q)","Dash"); slider(c2,"Dash Power","DashPower",20,150,0)
+	local c3=card(p,"Position","")
+	tog(c3,"Orbit","Orbit"); slider(c3,"Orbit Speed","OrbitSpd",1,30,0); slider(c3,"Orbit Range","OrbitRng",3,25,0)
+	tog(c3,"Click TP","ClickTP")
+	btn(c3,"TP Nearest Enemy",function()
+		local best,bd=nil,math.huge
+		for _,pl in ipairs(Players:GetPlayers()) do
+			if pl~=LP and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+				if S.TeamCheck and pl.Team and LP.Team and pl.Team==LP.Team then continue end
+				local d=(pl.Character.HumanoidRootPart.Position-LP.Character.HumanoidRootPart.Position).Magnitude
+				if d<bd then bd=d; best=pl end
+			end
+		end
+		if best then LP.Character.HumanoidRootPart.CFrame=best.Character.HumanoidRootPart.CFrame*CFrame.new(0,0,3) end
+	end)
+end
+
+-- PLAYER
+do local p=pages.player
+	local c=card(p,"Local","")
+	tog(c,"Infinite Ammo","InfAmmo"); tog(c,"God Mode","God"); tog(c,"Anti AFK","AntiAFK")
+	tog(c,"No Fall Damage","NoFall"); tog(c,"Anti Stun / Slow","AntiStun")
+	tog(c,"Auto Heal","AutoHeal"); tog(c,"Inf Stamina (best effort)","InfStamina")
+	local c2=card(p,"Anti-Aim","")
+	tog(c2,"Spinbot","Spinbot"); slider(c2,"Spin Speed","SpinSpd",5,50,0); tog(c2,"Anti Aim","AntiAim")
+end
+
+-- WORLD
+do local p=pages.world
+	local c=card(p,"Lighting","")
+	tog(c,"Fullbright","Fullbright",function(v)
+		if v then oldAmb=Lighting.Ambient; oldBri=Lighting.Brightness; setProperty("Fullbright",Lighting,"Ambient",Color3.new(1,1,1)); setProperty("Fullbright",Lighting,"Brightness",2)
+		else if oldAmb then Lighting.Ambient=oldAmb end; if oldBri then Lighting.Brightness=oldBri end end
+	end)
+	tog(c,"No Fog","NoFog",function(v) if v then oldFog=Lighting.FogEnd; setProperty("NoFog",Lighting,"FogEnd",1e6) else if oldFog then Lighting.FogEnd=oldFog end end end)
+	tog(c,"No Shadows","NoShadows",function(v) if v then oldShadow=Lighting.GlobalShadows; setProperty("NoShadows",Lighting,"GlobalShadows",false) else if oldShadow~=nil then Lighting.GlobalShadows=oldShadow end end end)
+	tog(c,"No Particles","NoParticles")
+	tog(c,"No Flash / Blind","NoFlash")
+	tog(c,"Time Changer","TimeChanger"); slider(c,"Clock Time","TimeVal",0,24,0)
+	local c2=card(p,"Camera","")
+	tog(c2,"Custom FOV","CustomFOV"); slider(c2,"FOV Value","FOVVal",50,120,0)
+	tog(c2,"Third Person","ThirdPerson")
+	tog(c2,"Freecam (Shift+P)","Freecam")
+end
+
+-- UTIL
+do local p=pages.util
+	local c=card(p,"Session","")
+	tog(c,"Watermark","Watermark")
+	keybind(c,"Panic Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.PanicKey=k end end,"End","PanicKey")
+	btn(c,"REJOIN",function() pcall(function() TP:Teleport(game.PlaceId,LP) end) end)
+	btn(c,"SERVER HOP",function()
+		pcall(function()
+			local data=HS:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+			for _,s in ipairs(data.data or {}) do if s.playing<s.maxPlayers and s.id~=game.JobId then TP:TeleportToPlaceInstance(game.PlaceId,s.id,LP) break end end
+		end)
+	end)
+	btn(c,"PANIC (disable all)",function()
+		panicAll()
+	end,true)
+	btn(c,"Unload",function()
+        dispose(true)
+	end,true)
+end
+
+local chatBusy=false
+local function sendChatMessage(message)
+    if chatBusy or not running or S.Panic then return end
+    chatBusy=true
+    task.spawn(function()
+        local ok,err=pcall(function()
+            local textChat=game:GetService("TextChatService")
+            local channels=textChat:FindFirstChild("TextChannels")
+            local channel=channels and channels:FindFirstChild("RBXGeneral")
+            if channel then channel:SendAsync(tostring(message)); return end
+            local events=game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+            local remote=events and events:FindFirstChild("SayMessageRequest")
+            if remote then remote:FireServer(tostring(message),"All") else error("No supported chat channel") end
+        end)
+        chatBusy=false
+        if not ok then warn("[combat ultra] chat: "..tostring(err)) end
+    end)
+end
+
+-- SOCIAL
+do local p=pages.social
+	local c=card(p,"Chat","")
+	tog(c,"Chat Spam","ChatSpam")
+    local messageBox=Instance.new("TextBox",modulePanels.ChatSpam); messageBox.Size=UDim2.new(1,0,0,28); messageBox.BackgroundColor3=T.p2; messageBox.TextColor3=T.txt; messageBox.Font=Enum.Font.Gotham; messageBox.TextSize=12; messageBox.ClearTextOnFocus=false; messageBox.Text=S.ChatMsg; messageBox.LayoutOrder=nord(modulePanels.ChatSpam); corner(messageBox,6)
+    connect(messageBox.FocusLost,function() S.ChatMsg=messageBox.Text:sub(1,200) end)
+    table.insert(configRefresh,function() messageBox.Text=S.ChatMsg end)
+
+	slider(c,"Chat Delay","ChatDelay",1,10,0)
+	btn(c,"Send Test Message",function() sendChatMessage(S.ChatMsg) end)
+	tog(c,"Emote Spam (best effort)","EmoteSpam")
+end
+
+
+-- Finish collapsed module panels and remove cards left empty by routing.
+for _,panel in pairs(modulePanels) do
+    local hasRows=false
+    for _,child in ipairs(panel:GetChildren()) do if child:IsA("GuiObject") then hasRows=true; break end end
+    if not hasRows then
+        local label=Instance.new("TextLabel",panel); label.Size=UDim2.new(1,0,0,22); label.BackgroundTransparency=1; local moduleKey=panel.Parent.Name:match("^Module_(.+)$"); label.Text=unsupported[moduleKey] and "Not implemented: requires game-specific integration" or "No additional settings"; label.TextWrapped=true; label.TextColor3=T.dim; label.Font=Enum.Font.Gotham; label.TextSize=11; label.TextXAlignment=Enum.TextXAlignment.Left
+    end
+end
+for id,page in pairs(pages) do
+    if id~="config" then
+        for _,container in ipairs(page:GetChildren()) do
+            if container:IsA("Frame") then
+                local hasControls=false
+                for _,child in ipairs(container:GetChildren()) do if child:IsA("Frame") and (child.Size.Y.Offset~=1) then hasControls=true; break end end
+                if not hasControls then container:Destroy() end
+            end
+        end
+    end
+end
+
+-- CONFIGS
+ do
+    local c=card(pages.config,"Profiles","Save files or copy/paste JSON")
+    local function box(text,height)
+        local b=Instance.new("TextBox",c); b.Size=UDim2.new(1,0,0,height); b.BackgroundColor3=T.p2; b.TextColor3=T.txt; b.Font=Enum.Font.Code; b.TextSize=12; b.ClearTextOnFocus=false; b.Text=text; b.LayoutOrder=nord(c); corner(b,6); return b
+    end
+    local profile=box("default",28)
+    local json=box("",100); json.MultiLine=true; json.TextWrapped=true; json.TextXAlignment=Enum.TextXAlignment.Left; json.TextYAlignment=Enum.TextYAlignment.Top; json.PlaceholderText="Export JSON here or paste a config to import"
+    local status=Instance.new("TextLabel",c); status.Size=UDim2.new(1,0,0,36); status.BackgroundTransparency=1; status.TextColor3=T.dim; status.Font=Enum.Font.Gotham; status.TextSize=11; status.TextWrapped=true; status.Text="Ready"; status.LayoutOrder=nord(c)
+    local function run(fn)
+        local ok,result=pcall(fn); status.Text=ok and (result or "Done") or ("Error: "..tostring(result)); status.TextColor3=ok and T.ok or T.bad
+    end
+    local function path()
+        local name=profile.Text:match("^%s*(.-)%s*$")
+        assert(#name>0 and #name<=48 and name:match("^[%w_-]+$"),"Profile names: letters, numbers, _ and - only")
+        return "CombatUltraConfigs/"..name..".json"
+    end
+    local function import(text)
+        assert(#text<=262144,"Config exceeds 256 KB")
+        local data=HS:JSONDecode(text)
+        assert(type(data)=="table" and data.version==1 and type(data.settings)=="table","Invalid config or unsupported version")
+        applyConfig(data.settings); HK=false; CT=nil
+    end
+    btn(c,"Save Profile",function() run(function()
+        assert(type(writefile)=="function" and type(isfolder)=="function" and type(makefolder)=="function","File storage unavailable; use Export JSON")
+        local target=path(); if not isfolder("CombatUltraConfigs") then makefolder("CombatUltraConfigs") end
+        writefile(target,encodeConfig()); return "Profile saved"
+    end) end)
+    btn(c,"Load Profile",function() run(function()
+        assert(type(readfile)=="function","File storage unavailable; use Import JSON")
+        import(readfile(path())); return "Profile loaded"
+    end) end)
+    btn(c,"Export JSON",function() run(function() json.Text=encodeConfig(); return "JSON exported into the text box" end) end)
+    btn(c,"Import JSON",function() run(function() import(json.Text); return "JSON imported" end) end)
+    btn(c,"Reset Defaults",function() run(function() applyConfig({}); HK=false; CT=nil; return "Defaults restored" end) end)
+
+	-- Auto Execute UI (additive)
+	do
+		local ae = card(pages.config, "Auto Execute", "Load a profile automatically when the script starts")
+
+		local aeRow = Instance.new("Frame", ae)
+		aeRow.Size = UDim2.new(1, 0, 0, 28)
+		aeRow.BackgroundTransparency = 1
+		aeRow.LayoutOrder = nord(ae)
+
+		local aeLab = Instance.new("TextLabel", aeRow)
+		aeLab.Size = UDim2.new(1, -50, 1, 0)
+		aeLab.BackgroundTransparency = 1
+		aeLab.Text = "Auto Execute on Inject"
+		aeLab.TextColor3 = T.txt
+		aeLab.Font = Enum.Font.Gotham
+		aeLab.TextSize = 12
+		aeLab.TextXAlignment = Enum.TextXAlignment.Left
+
+		local aeTrack = Instance.new("Frame", aeRow)
+		aeTrack.Size = UDim2.new(0, 36, 0, 18)
+		aeTrack.Position = UDim2.new(1, -36, 0.5, -9)
+		aeTrack.BackgroundColor3 = autoExecEnabled and T.acc or Color3.fromRGB(45, 45, 55)
+		aeTrack.BorderSizePixel = 0
+		corner(aeTrack, 9)
+
+		local aeKnob = Instance.new("Frame", aeTrack)
+		aeKnob.Size = UDim2.new(0, 14, 0, 14)
+		aeKnob.Position = autoExecEnabled and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+		aeKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		aeKnob.BorderSizePixel = 0
+		corner(aeKnob, 7)
+
+		local aeHit = Instance.new("TextButton", aeRow)
+		aeHit.Size = UDim2.new(1, 0, 1, 0)
+		aeHit.BackgroundTransparency = 1
+		aeHit.Text = ""
+		connect(aeHit.MouseButton1Click, function()
+			autoExecEnabled = not autoExecEnabled
+			aeTrack.BackgroundColor3 = autoExecEnabled and T.acc or Color3.fromRGB(45, 45, 55)
+			aeKnob.Position = autoExecEnabled and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+		end)
+		bindTip(aeRow, "Auto Execute on Inject")
+		bindTip(aeProfile, "Profile name to auto-load")
+
+		local aeNameLab = Instance.new("TextLabel", ae)
+		aeNameLab.Size = UDim2.new(1, 0, 0, 14)
+		aeNameLab.BackgroundTransparency = 1
+		aeNameLab.Text = "Profile name to auto-load"
+		aeNameLab.TextColor3 = T.mut
+		aeNameLab.Font = Enum.Font.Gotham
+		aeNameLab.TextSize = 11
+		aeNameLab.TextXAlignment = Enum.TextXAlignment.Left
+		aeNameLab.LayoutOrder = nord(ae)
+
+		local aeProfile = Instance.new("TextBox", ae)
+		aeProfile.Size = UDim2.new(1, 0, 0, 28)
+		aeProfile.BackgroundColor3 = T.p2
+		aeProfile.TextColor3 = T.txt
+		aeProfile.Font = Enum.Font.Code
+		aeProfile.TextSize = 12
+		aeProfile.ClearTextOnFocus = false
+		aeProfile.Text = autoExecProfile
+		aeProfile.LayoutOrder = nord(ae)
+		corner(aeProfile, 6)
+
+		local aeStatus = Instance.new("TextLabel", ae)
+		aeStatus.Size = UDim2.new(1, 0, 0, 28)
+		aeStatus.BackgroundTransparency = 1
+		aeStatus.TextColor3 = T.dim
+		aeStatus.Font = Enum.Font.Gotham
+		aeStatus.TextSize = 11
+		aeStatus.TextWrapped = true
+		aeStatus.Text = autoExecEnabled and ('ON → loads "' .. autoExecProfile .. '" next inject') or "OFF"
+		aeStatus.LayoutOrder = nord(ae)
+
+		btn(ae, "Save Auto Execute Settings", function()
+			local name = aeProfile.Text:match("^%s*(.-)%s*$") or ""
+			if not (#name > 0 and #name <= 48 and name:match("^[%w_-]+$")) then
+				aeStatus.Text = "Error: bad profile name (letters, numbers, _, -)"
+				aeStatus.TextColor3 = T.bad
+				return
+			end
+			autoExecProfile = name
+			local ok, err = saveAutoExecPrefs()
+			if not ok then
+				aeStatus.Text = "Error: " .. tostring(err)
+				aeStatus.TextColor3 = T.bad
+				return
+			end
+			aeStatus.Text = autoExecEnabled and ('ON → loads "' .. autoExecProfile .. '" next inject') or "OFF (prefs saved)"
+			aeStatus.TextColor3 = T.ok
+		end)
+	end
+end
+
+sideBtns.aim.BackgroundTransparency=0; sideBtns.aim.L.TextColor3=T.txt; pages.aim.Visible=true; cur="aim"; PageTitle.Text="Aim"; PageDesc.Text=cats[1].d
+
+-- watermark
+local WM=Instance.new("TextLabel",Gui); WM.Size=UDim2.new(0,260,0,20); WM.Position=UDim2.new(0,10,0,10); WM.BackgroundTransparency=0.3; WM.BackgroundColor3=T.bg; WM.TextColor3=T.txt; WM.Font=Enum.Font.GothamBold; WM.TextSize=11; WM.TextXAlignment=Enum.TextXAlignment.Left; WM.Text="  COMBAT ULTRA | loading"; corner(WM,4)
+
+-- radar frame
+local RadarF=Instance.new("Frame",Gui); RadarF.Size=UDim2.new(0,140,0,140); RadarF.Position=UDim2.new(1,-160,0,20); RadarF.BackgroundColor3=Color3.fromRGB(10,10,14); RadarF.BackgroundTransparency=0.2; RadarF.BorderSizePixel=0; RadarF.Visible=false; corner(RadarF,8); stroke(RadarF)
+local RadarC=Instance.new("Frame",RadarF); RadarC.Size=UDim2.new(0,4,0,4); RadarC.Position=UDim2.new(0.5,-2,0.5,-2); RadarC.BackgroundColor3=T.acc; RadarC.BorderSizePixel=0; corner(RadarC,2)
+
+
+-- Hit marker + bullet trace helpers
+local hitMarkerGui, hitMarkerLine1, hitMarkerLine2
+local function showHitMarker()
+	pcall(function()
+		if not hitMarkerGui or not hitMarkerGui.Parent then
+			hitMarkerGui = Instance.new("ScreenGui")
+			hitMarkerGui.Name = "CU_HitMarker"
+			hitMarkerGui.IgnoreGuiInset = true
+			hitMarkerGui.ResetOnSpawn = false
+			hitMarkerGui.DisplayOrder = 1000
+			hitMarkerGui.Parent = Gui.Parent
+			local function mk()
+				local f = Instance.new("Frame")
+				f.BorderSizePixel = 0
+				f.BackgroundColor3 = Color3.fromRGB(255,255,255)
+				f.AnchorPoint = Vector2.new(0.5,0.5)
+				f.Parent = hitMarkerGui
+				return f
+			end
+			hitMarkerLine1 = mk()
+			hitMarkerLine2 = mk()
+		end
+		local size = S.HitMarkerSize or 18
+		local cam = workspace.CurrentCamera
+		local c = cam and cam.ViewportSize/2 or Vector2.new(400,300)
+		hitMarkerLine1.Size = UDim2.fromOffset(size, 2)
+		hitMarkerLine2.Size = UDim2.fromOffset(size, 2)
+		hitMarkerLine1.Position = UDim2.fromOffset(c.X, c.Y)
+		hitMarkerLine2.Position = UDim2.fromOffset(c.X, c.Y)
+		hitMarkerLine1.Rotation = 45
+		hitMarkerLine2.Rotation = -45
+		hitMarkerLine1.Visible = true
+		hitMarkerLine2.Visible = true
+		local life = S.HitMarkerTime or 0.12
+		task.delay(life, function()
+			if hitMarkerLine1 then hitMarkerLine1.Visible = false end
+			if hitMarkerLine2 then hitMarkerLine2.Visible = false end
+		end)
+	end)
+end
+
+local activeTraces = {}
+local function showBulletTrace(worldPos)
+	pcall(function()
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		local att0 = Instance.new("Attachment")
+		local att1 = Instance.new("Attachment")
+		local part = Instance.new("Part")
+		part.Anchored = true
+		part.CanCollide = false
+		part.Transparency = 1
+		part.Size = Vector3.new(0.1,0.1,0.1)
+		part.CFrame = CFrame.new(cam.CFrame.Position)
+		part.Parent = workspace
+		att0.Parent = part
+		att1.WorldPosition = worldPos
+		att1.Parent = part
+		local beam = Instance.new("Beam")
+		beam.Attachment0 = att0
+		beam.Attachment1 = att1
+		beam.Width0 = 0.15
+		beam.Width1 = 0.05
+		beam.Color = ColorSequence.new(S.ESPColor or Color3.fromRGB(255,60,80))
+		beam.FaceCamera = true
+		beam.Parent = part
+		table.insert(activeTraces, part)
+		task.delay(S.BulletTraceTime or 0.15, function()
+			pcall(function() part:Destroy() end)
+		end)
+	end)
+end
+
+-- Auto reload best-effort
+local lastReload = 0
+local function tryAutoReload()
+	if not S.AutoReload or S.Panic then return end
+	if tick() - lastReload < 0.4 then return end
+	local char = LP.Character
+	local tool = char and char:FindFirstChildOfClass("Tool")
+	if not tool then return end
+	local need = false
+	for _, v in ipairs(tool:GetDescendants()) do
+		if v:IsA("IntValue") or v:IsA("NumberValue") then
+			local n = v.Name:lower()
+			if (n:find("ammo",1,true) or n:find("clip",1,true) or n:find("mag",1,true)) and v.Value <= 0 then
+				need = true
+				break
+			end
+		end
+	end
+	if need then
+		lastReload = tick()
+		pcall(function()
+			if VIM then
+				VIM:SendKeyEvent(true, S.AutoReloadKey or Enum.KeyCode.R, false, game)
+				task.delay(0.05, function()
+					pcall(function() VIM:SendKeyEvent(false, S.AutoReloadKey or Enum.KeyCode.R, false, game) end)
+				end)
+			end
+		end)
+	end
+end
+
+--------------------------------------------------------------------
+-- LOGIC
+--------------------------------------------------------------------
+local friendshipCache={}
+local function alive(p)
+    if not p or p==LP then return false end
+    local char=p.Character
+    local hum=char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health<=0 then return false end
+    if S.IgnoreDowned and hum.Health<=5 then return false end
+    if S.TeamCheck and not p.Neutral and not LP.Neutral and p.Team and p.Team==LP.Team then return false end
+    if S.IgnoreFriends then
+        local cached=friendshipCache[p.UserId]
+        if cached==nil then
+            friendshipCache[p.UserId]="pending"
+            task.spawn(function()
+                local ok,result=pcall(function() return LP:IsFriendsWith(p.UserId) end)
+                if running and p.Parent then friendshipCache[p.UserId]=ok and result or false end
+            end)
+            return false
+        elseif cached=="pending" or cached==true then return false end
+    end
+    return true
+end
+connect(Players.PlayerRemoving,function(p) friendshipCache[p.UserId]=nil end)
+
+local function lineOfSight(part)
+    if not part or not part.Parent then return false end
+    local camera=workspace.CurrentCamera
+    if not camera then return false end
+    local origin=camera.CFrame.Position
+    local direction=part.Position-origin
+    local character=part:FindFirstAncestorOfClass("Model") or part.Parent
+    if direction.Magnitude<0.001 then return true end
+    local exclusions={camera}
+    if LP.Character then table.insert(exclusions,LP.Character) end
+    local params=RaycastParams.new()
+    params.FilterType=Enum.RaycastFilterType.Exclude
+    params.IgnoreWater=true
+    for _=1,12 do
+        params.FilterDescendantsInstances=exclusions
+        local hit=workspace:Raycast(origin,direction,params)
+        if not hit or hit.Instance:IsDescendantOf(character) then return true end
+        local obstacle=hit.Instance
+        if obstacle:IsA("BasePart") and obstacle.Transparency>=0.95 then
+            table.insert(exclusions,obstacle)
+        else return false end
+    end
+    return false
+end
+local function wallOk(part)
+    local camera=workspace.CurrentCamera
+    if not camera or not part or not part.Parent then return false end
+    if S.VisibleOnly then
+        local projected,onScreen=camera:WorldToViewportPoint(part.Position)
+        if not onScreen or projected.Z<=0 then return false end
+    end
+    if S.WallCheck or S.VisibleOnly or S.AutoWall then return lineOfSight(part) end
+    return true
+end
+
+local randomAimParts=setmetatable({},{__mode="k"})
+local function aimPart(char)
+    if not char then return nil end
+    local root=char:FindFirstChild("HumanoidRootPart")
+    local mine=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if S.ForceHeadClose and root and mine and (root.Position-mine.Position).Magnitude<=S.CloseRange then
+        return char:FindFirstChild("Head") or root
+    end
+    if S.HeadOnly then return char:FindFirstChild("Head") or root end
+    if S.LockPart=="Torso" then return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or root end
+    if S.LockPart=="Random" then
+        local cached=randomAimParts[char]
+        if cached and cached.Parent==char then return cached end
+        local candidates={}
+        for _,name in ipairs({"Head","UpperTorso","Torso","HumanoidRootPart"}) do
+            local part=char:FindFirstChild(name); if part and part:IsA("BasePart") then table.insert(candidates,part) end
+        end
+        if #candidates>0 then local part=candidates[math.random(1,#candidates)]; randomAimParts[char]=part; return part end
+    end
+    return char:FindFirstChild("Head") or root
+end
+local function targetMetrics(part,camera,origin,root,fov)
+    if not part or not part.Parent or not part:IsA("BasePart") then return nil end
+    if root and (part.Position-root.Position).Magnitude>S.MaxDist then return nil end
+    if not wallOk(part) then return nil end
+    local point,onScreen=camera:WorldToViewportPoint(part.Position)
+    if not onScreen or point.Z<=0 then return nil end
+    local cross=(Vector2.new(point.X,point.Y)-origin).Magnitude
+    if cross>fov then return nil end
+    return cross
+end
+local function getTarget()
+    local camera=workspace.CurrentCamera
+    if not camera then CT=nil; return nil end
+    Cam=camera
+    local origin=aimPosition()
+    local root=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local fov=S.FOV+(S.DynFOV and S.DynFOVAdd or 0)
+    local current
+    if CT and CT.Parent then
+        local player=Players:GetPlayerFromCharacter(CT.Parent)
+        if player and alive(player) then
+            local part=aimPart(player.Character)
+            if targetMetrics(part,camera,origin,root,fov) then current=part end
+        end
+    end
+    if current and (S.StickyAim or os.clock()-lastSwitch<S.SwitchDelay) then CT=current; return current end
+    local best,bestScore=nil,math.huge
+    for _,player in ipairs(Players:GetPlayers()) do
+        if alive(player) then
+            local part=aimPart(player.Character)
+            local cross=targetMetrics(part,camera,origin,root,fov)
+            if cross then
+                local score=cross
+                if S.Priority=="Distance" then score=(part.Position-(root and root.Position or camera.CFrame.Position)).Magnitude
+                elseif S.Priority=="LowestHP" then local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid"); score=hum and hum.Health or math.huge end
+                if score<bestScore then bestScore=score; best=part end
+            end
+        end
+    end
+    if best~=CT then lastSwitch=os.clock() end
+    CT=best
+    return best
+end
+local function aimOn()
+    if S.Panic or not S.Aimbot or bindingCapture or UIS:GetFocusedTextBox() or pointerOverMenu() then return false end
+    if S.ADSOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
+    if S.AimMode=="Toggle" then return S.AimOn end
+    if S.AimKeyMouse then return UIS:IsMouseButtonPressed(S.AimKey) end
+    return UIS:IsKeyDown(S.AimKey)
+end
+local function moveTo(part,str,dt)
+    local camera=workspace.CurrentCamera
+    if not camera or not part or not part.Parent then return end
+    local pos=part.Position+part.AssemblyLinearVelocity*S.Prediction
+    if S.Humanize then
+        local t=os.clock()
+        pos+=Vector3.new(math.noise(t*3,0),math.noise(0,t*3),math.noise(t*3,t*3))*S.Jitter
+    end
+    local point,onScreen=camera:WorldToViewportPoint(pos)
+    if not onScreen or point.Z<=0 then return end
+    local origin=aimPosition()
+    local distance=(Vector2.new(point.X,point.Y)-origin).Magnitude
+    local rate=math.clamp(str,0,1)
+    if S.MagnetAim and distance<S.FOV*0.35 then rate=math.max(rate,S.MagnetStr) end
+    local alpha=1-(1-rate)^(math.clamp(dt or 1/60,0,0.1)*60)
+    if S.AimMethod=="Mouse" and type(mousemoverel)=="function" then
+        mousemoverel((point.X-origin.X)*alpha,(point.Y-origin.Y)*alpha)
+    else
+        if (pos-camera.CFrame.Position).Magnitude>0.001 then
+            camera.CFrame=camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position,pos),alpha)
+        end
+    end
+end
+
+local function click()
+    if not running or S.Panic or bindingCapture then return end
+    local function single()
+        if not running or S.Panic then return end
+        if type(mouse1click)=="function" then pcall(mouse1click)
+        else
+            local point=aimPosition()
+            if not VIM then return end
+            local ok=pcall(function() VIM:SendMouseButtonEvent(point.X,point.Y,0,true,game,0) end)
+            if ok then task.defer(function() pcall(function() VIM:SendMouseButtonEvent(point.X,point.Y,0,false,game,0) end) end) end
+        end
+    end
+    single()
+    if S.DoubleTap then task.delay(S.DoubleTapDelay or 0.04,single) end
+end
+
+pcall(function()
+	if type(hookmetamethod)~="function" or type(checkcaller)~="function" then return end
+	local old; old=hookmetamethod(game,"__index",function(self,key)
+		if running and S.SilentAim and not S.Panic and not bindingCapture and not checkcaller() and typeof(self)=="Instance" and self:IsA("Mouse") and (key=="Hit" or key=="Target") then
+			local chance=S.HitChance
+			if S.FirstBullet and (not shootStart or tick()-shootStart < 0.05) then chance=100 end
+			if math.random(1,100)<=chance then
+				local t=CT
+				if t and t.Parent then
+					if S.SilentFovOnly then
+						local cam=workspace.CurrentCamera
+						if cam then
+							local p,on=cam:WorldToViewportPoint(t.Position)
+							local origin=aimPosition()
+							local fov=S.FOV+(S.DynFOV and S.DynFOVAdd or 0)
+							if not on or (Vector2.new(p.X,p.Y)-origin).Magnitude>fov then return old(self,key) end
+						end
+					end
+					local cf=t.CFrame+(t.AssemblyLinearVelocity*S.Prediction)
+					if key=="Hit" then return cf end
+					if key=="Target" then return t end
+				end
+			end
+		end
+		return old(self,key)
+	end)
+end)
+
+connect(RS.RenderStepped,function(dt)
+	Cam=workspace.CurrentCamera; if not Cam then return end
+    if S.Panic then
+        WM.Visible=false; RadarF.Visible=false
+        if FOVc then FOVc.Visible=false end
+        for _,line in pairs(CH) do line.Visible=false end
+        return
+    end
+	if S.Watermark then
+		WM.Visible=true
+		WM.Text=string.format("  COMBAT ULTRA | %d fps | %d ms",math.floor(1/math.max(dt,0.001)),math.floor(LP:GetNetworkPing()*1000))
+	else WM.Visible=false end
+
+	local fov=S.FOV+(S.DynFOV and S.DynFOVAdd or 0)
+	if FOVc then local mp=aimPosition(); FOVc.Position=Vector2.new(mp.X,mp.Y); FOVc.Radius=fov; FOVc.Visible=S.ShowFOV and (S.Aimbot or S.AimAssist or S.SilentAim) and not S.Panic; FOVc.Color=CT and Color3.fromRGB(255,70,70) or Color3.fromRGB(255,255,255) end
+	if CH[1] then local mp=aimPosition(); local s,g=S.CrosshairSize or 6,S.CrosshairGap or 3; local v=S.Crosshair
+		CH[1].From=Vector2.new(mp.X-s-g,mp.Y) CH[1].To=Vector2.new(mp.X-g,mp.Y) CH[1].Visible=v
+		CH[2].From=Vector2.new(mp.X+g,mp.Y) CH[2].To=Vector2.new(mp.X+s+g,mp.Y) CH[2].Visible=v
+		CH[3].From=Vector2.new(mp.X,mp.Y-s-g) CH[3].To=Vector2.new(mp.X,mp.Y-g) CH[3].Visible=v
+		CH[4].From=Vector2.new(mp.X,mp.Y+g) CH[4].To=Vector2.new(mp.X,mp.Y+s+g) CH[4].Visible=v
+	end
+
+	-- anti recoil
+	if S.AntiRecoil and not S.Panic and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+		if not savedPitch then savedPitch=Cam.CFrame; shootStart=tick(); patternMul=1 end
+		if S.Pattern then patternMul=math.min(S.PatternCap,patternMul+S.PatternScale*dt*60) end
+		if S.LockPitch and not aimOn() and not S.AimAssist then
+			local look,pos,base=Cam.CFrame.LookVector,Cam.CFrame.Position,savedPitch.LookVector
+			local flat=Vector3.new(look.X,0,look.Z)
+			if flat.Magnitude>0.001 then Cam.CFrame=CFrame.new(pos,pos+Vector3.new(flat.Unit.X,base.Y,flat.Unit.Z).Unit) end
+		end
+		if mousemoverel and not aimOn() and not S.AimAssist then
+			local v=math.clamp(S.VStr*patternMul,0,15); local h=((math.floor((tick()-shootStart)*10)%2==0) and 1 or -1)*S.HStr*patternMul
+			mousemoverel(h*dt*60,-v*dt*60)
+		end
+
+	else savedPitch=nil; patternMul=1 end
+    if S.AntiRecoil or S.NoSpread or S.RapidFire or S.InfAmmo then
+        local char=LP.Character; local tool=char and char:FindFirstChildOfClass("Tool")
+        if tool then for _,value in ipairs(tool:GetDescendants()) do
+            if value:IsA("NumberValue") or value:IsA("IntValue") then
+                local name=value.Name:lower()
+                if S.AntiRecoil and (name:find("recoil",1,true) or name:find("kick",1,true) or name:find("punch",1,true) or name:find("shake",1,true)) then setProperty("AntiRecoil",value,"Value",0) end
+                if S.NoSpread and (name:find("spread",1,true) or name:find("bloom",1,true)) then setProperty("NoSpread",value,"Value",0) end
+                if S.RapidFire and value:IsA("NumberValue") and (name:find("cooldown",1,true) or name:find("delay",1,true)) then setProperty("RapidFire",value,"Value",0.02) end
+                if S.InfAmmo and (name:find("ammo",1,true) or name:find("clip",1,true)) then setProperty("InfAmmo",value,"Value",999) end
+            end
+        end end
+    end
+
+
+	if S.CustomFOV then setProperty("CustomFOV",Cam,"FieldOfView",S.FOVVal) end
+	if S.ThirdPerson then setProperty("ThirdPerson",LP,"CameraMaxZoomDistance",12); setProperty("ThirdPerson",LP,"CameraMinZoomDistance",8) end
+	if S.TimeChanger then setProperty("TimeChanger",Lighting,"ClockTime",S.TimeVal) end
+    if S.NoFlash and os.clock()-lastFlashScan>0.25 then
+        lastFlashScan=os.clock()
+        local playerGui=LP:FindFirstChildOfClass("PlayerGui")
+        if playerGui then
+            for _,g in ipairs(playerGui:GetDescendants()) do
+                if g:IsA("Frame") or g:IsA("ImageLabel") then
+                    local name=g.Name:lower()
+                    if name:find("flash",1,true) or name:find("blind",1,true) then setProperty("NoFlash",g,"Visible",false) end
+                end
+            end
+        end
+    end
+    if S.NoParticles and not particlesApplied then
+        particlesApplied=true
+        for _,object in ipairs(workspace:GetDescendants()) do
+            if object:IsA("ParticleEmitter") or object:IsA("Trail") or object:IsA("Smoke") then setProperty("NoParticles",object,"Enabled",false) end
+        end
+    end
+
+	if S.Orbit and not S.Panic and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+		local t=getTarget(); if t then orbitAng+=S.OrbitSpd*dt; local o=Vector3.new(math.cos(orbitAng)*S.OrbitRng,0,math.sin(orbitAng)*S.OrbitRng); LP.Character.HumanoidRootPart.CFrame=CFrame.new(t.Position+o,t.Position) end
+	end
+	if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+		local hrp=LP.Character.HumanoidRootPart
+		if S.Spinbot then hrp.CFrame=hrp.CFrame*CFrame.Angles(0,math.rad(S.SpinSpd)*dt*60,0)
+		elseif S.AntiAim then hrp.CFrame=hrp.CFrame*CFrame.Angles(0,math.rad(math.random(-25,25)),0) end
+	end
+
+    -- Radar markers are reused until a player becomes invalid.
+    RadarF.Visible=S.Radar
+    local radarRoot=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local seen={}
+    if S.Radar and radarRoot then
+        for _,player in ipairs(Players:GetPlayers()) do
+            local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if root and alive(player) then
+                seen[player]=true
+                local dot=radarDots[player]
+                if not dot then dot=Instance.new("Frame",RadarF); dot.Size=UDim2.fromOffset(4,4); dot.BorderSizePixel=0; corner(dot,2); radarDots[player]=dot end
+                local rel=radarRoot.CFrame:PointToObjectSpace(root.Position)
+                local sc=S.RadarScale or 2; dot.Position=UDim2.new(0.5,math.clamp(rel.X/sc,-65,65)-2,0.5,math.clamp(rel.Z/sc,-65,65)-2)
+                dot.BackgroundColor3=S.ESPColor
+            end
+        end
+    end
+    for player,dot in pairs(radarDots) do if not seen[player] then dot:Destroy(); radarDots[player]=nil end end
+
+end)
+
+local aimRenderName="CombatUltraAim_"..HS:GenerateGUID(false)
+RS:BindToRenderStep(aimRenderName,Enum.RenderPriority.Camera.Value+1,function(dt)
+    if not running or S.Panic or not Gui.Parent or freecamConn then CT=nil; return end
+    local active=aimOn()
+    local assist=S.AimAssist and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu()
+    if not active and not assist then if S.SilentAim then getTarget() else CT=nil end; return end
+    local target=getTarget()
+    if not target then return end
+    local strength=active and S.Smooth or S.AssistStr
+    if active and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then strength=S.HipfireSmooth end
+    if active then
+        local camera=workspace.CurrentCamera
+        if not camera then return end
+        local point=camera:WorldToViewportPoint(target.Position)
+        local distance=(Vector2.new(point.X,point.Y)-aimPosition()).Magnitude
+        local close=math.clamp(1-distance/math.max(S.FOV,1),0,1)
+        strength=strength+(1-strength)*S.SnapBlend*close
+    end
+    moveTo(target,strength,dt)
+end)
+connect(Gui.Destroying,function() RS:UnbindFromRenderStep(aimRenderName); S.Panic=true; CT=nil; HK=false; S.AimOn=false end)
+connect(UIS.WindowFocusReleased,function() HK=false; S.AimOn=false; if cancelCapture then cancelCapture() end end)
+connect(LP.CharacterAdded,function() CT=nil; HK=false; S.AimOn=false; savedPitch=nil end)
+
+local lastShot=0
+connect(RS.Heartbeat,function()
+	if S.Panic then return end
+    local shotDelay = (S.AutoShoot and S.AutoShootDelay) or S.TriggerDelay or 0.08
+    if (S.Triggerbot or S.AutoShoot) and tick()-lastShot>shotDelay and not bindingCapture and not UIS:GetFocusedTextBox() then
+        local menuHover=pointerOverMenu()
+        if not menuHover then
+            local fire=false
+            local camera=workspace.CurrentCamera
+            if S.Triggerbot and camera then
+                local aimPoint=aimPosition(); local ray=camera:ViewportPointToRay(aimPoint.X,aimPoint.Y)
+                local params=RaycastParams.new()
+                params.FilterType=Enum.RaycastFilterType.Exclude
+                local exclude={camera}
+                if LP.Character then table.insert(exclude,LP.Character) end
+                params.FilterDescendantsInstances=exclude; params.IgnoreWater=true
+                local range = math.max(S.TriggerRange or 22, 5)
+                local hit=workspace:Raycast(ray.Origin,ray.Direction*math.min(S.MaxDist, range*20),params)
+                if hit then
+                    local model=hit.Instance
+                    local player
+                    while model and model~=workspace do
+                        if model:IsA("Model") then player=Players:GetPlayerFromCharacter(model); if player then break end end
+                        model=model.Parent
+                    end
+                    if player and alive(player) then
+                        local sp,on = camera:WorldToViewportPoint(hit.Position)
+                        local dist2d = on and (Vector2.new(sp.X,sp.Y)-aimPoint).Magnitude or math.huge
+                        if dist2d <= (S.TriggerRange or 22) and wallOk(hit.Instance) then fire=true end
+                    end
+                end
+            end
+            if not fire and S.AutoShoot then
+                local target=getTarget()
+                fire=target~=nil and lineOfSight(target)
+            end
+            if fire then
+                lastShot=tick()
+                click()
+                if S.HitMarker then showHitMarker() end
+                if S.BulletTrace then local t=CT; if t then showBulletTrace(t.Position) end end
+            end
+        end
+    end
+	if S.KillAura and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+		local my=LP.Character.HumanoidRootPart.Position
+		for _,p in ipairs(Players:GetPlayers()) do
+			if alive(p) and p.Character:FindFirstChild("HumanoidRootPart") and (p.Character.HumanoidRootPart.Position-my).Magnitude<=S.AuraRange then
+				local tool=LP.Character:FindFirstChildOfClass("Tool"); if tool then pcall(function() tool:Activate() end) end; break
+			end
+		end
+	end
+	if S.Hitbox then
+		for _,p in ipairs(Players:GetPlayers()) do if alive(p) then
+			for _,n in ipairs(S.HeadOnly and {"Head"} or {"Head","HumanoidRootPart","UpperTorso","Torso"}) do
+				local part=p.Character and p.Character:FindFirstChild(n)
+				if part and part:IsA("BasePart") then setProperty("Hitbox",part,"Size",Vector3.new(S.HitboxSize,S.HitboxSize,S.HitboxSize)); setProperty("Hitbox",part,"Transparency",0.65); setProperty("Hitbox",part,"CanCollide",false) end
+			end
+		end end
+	else restoreModule("Hitbox") end
+
+	local char=LP.Character; if not char then return end
+	local hum=char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+	if S.Speed then setProperty("Speed",hum,"WalkSpeed",S.SpeedVal) end
+	if S.JumpPow then setProperty("JumpPow",hum,"UseJumpPower",true); setProperty("JumpPow",hum,"JumpPower",S.JumpVal) end
+	if S.Bhop and hum.FloorMaterial~=Enum.Material.Air and UIS:IsKeyDown(Enum.KeyCode.Space) then hum.Jump=true end
+	if S.EdgeJump and hum.FloorMaterial~=Enum.Material.Air then
+		local root=char:FindFirstChild("HumanoidRootPart")
+		if root then local params=RaycastParams.new(); params.FilterType=Enum.RaycastFilterType.Exclude; params.FilterDescendantsInstances={char}; local r=workspace:Raycast(root.Position,Vector3.new(0,-(hum.HipHeight+root.Size.Y/2+0.6),0),params) if not r then hum.Jump=true end end
+	end
+	if S.CrouchSpam then setProperty("CrouchSpam",hum,"HipHeight",(os.clock()%.2<0.1) and 0.5 or 2) end
+	if S.God then hum.Health=hum.MaxHealth end
+	if S.AutoHeal and hum.Health<hum.MaxHealth*0.5 then hum.Health=math.min(hum.MaxHealth,hum.Health+1) end
+	if S.NoFall then
+        local states=humanoidStates[hum]
+        if not states then states={}; humanoidStates[hum]=states end
+        for _,state in ipairs({Enum.HumanoidStateType.FallingDown,Enum.HumanoidStateType.Ragdoll}) do
+            if states[state]==nil then states[state]=hum:GetStateEnabled(state) end
+            hum:SetStateEnabled(state,false)
+        end
+    end
+	if S.AntiStun then setProperty("AntiStun",hum,"WalkSpeed",math.max(hum.WalkSpeed,16)) end
+	if S.AirStrafe and hum.FloorMaterial==Enum.Material.Air and char:FindFirstChild("HumanoidRootPart") then
+		local hrp=char.HumanoidRootPart; local dir=Vector3.zero
+		if UIS:IsKeyDown(Enum.KeyCode.A) then dir-=Cam.CFrame.RightVector end
+		if UIS:IsKeyDown(Enum.KeyCode.D) then dir+=Cam.CFrame.RightVector end
+		if dir.Magnitude>0 then hrp.AssemblyLinearVelocity=Vector3.new(dir.Unit.X*hrp.AssemblyLinearVelocity.Magnitude,hrp.AssemblyLinearVelocity.Y,dir.Unit.Z*hrp.AssemblyLinearVelocity.Magnitude) end
+	end
+
+    if S.ChatSpam and not chatBusy and tick()-lastChat>=S.ChatDelay then
+        lastChat=tick(); sendChatMessage(S.ChatMsg)
+    end
+end)
+
+connect(RS.RenderStepped,function()
+	if not S.Fly or S.Panic then return end
+	local char=LP.Character; if not char then return end; local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+	if not BV or BV.Parent~=hrp or not BG or BG.Parent~=hrp then if BV then BV:Destroy() end; if BG then BG:Destroy() end; BV=Instance.new("BodyVelocity"); BV.MaxForce=Vector3.new(9e9,9e9,9e9); BV.Parent=hrp; BG=Instance.new("BodyGyro"); BG.MaxTorque=Vector3.new(9e9,9e9,9e9); BG.Parent=hrp end
+	Cam=workspace.CurrentCamera; if not Cam then return end
+	BG.CFrame=Cam.CFrame; local dir=Vector3.zero
+	if UIS:IsKeyDown(Enum.KeyCode.W) then dir+=Cam.CFrame.LookVector end
+	if UIS:IsKeyDown(Enum.KeyCode.S) then dir-=Cam.CFrame.LookVector end
+	if UIS:IsKeyDown(Enum.KeyCode.A) then dir-=Cam.CFrame.RightVector end
+	if UIS:IsKeyDown(Enum.KeyCode.D) then dir+=Cam.CFrame.RightVector end
+	if UIS:IsKeyDown(Enum.KeyCode.Space) then dir+=Vector3.yAxis end
+	if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir-=Vector3.yAxis end
+	BV.Velocity=dir.Magnitude>0 and dir.Unit*S.FlySpeed or Vector3.zero
+end)
+
+connect(UIS.JumpRequest,function()
+	if S.Panic then return end
+	if S.InfJump and LP.Character then local h=LP.Character:FindFirstChildOfClass("Humanoid"); if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end
+	if S.LongJump and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then local hrp=LP.Character.HumanoidRootPart; hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity+Cam.CFrame.LookVector*80+Vector3.new(0,40,0) end
+end)
+
+connect(RS.Stepped,function()
+	if S.Noclip and not S.Panic and LP.Character then for _,p in ipairs(LP.Character:GetDescendants()) do if p:IsA("BasePart") then setProperty("Noclip",p,"CanCollide",false) end end end
+end)
+
+local ESPGui=Instance.new("ScreenGui")
+ESPGui.Name="CombatUltraESP"; ESPGui.IgnoreGuiInset=true; ESPGui.ResetOnSpawn=false; ESPGui.DisplayOrder=998
+ESPGui.Parent=Gui.Parent
+local function clearESP(p)
+    local pack=ESP[p]
+    if not pack then return end
+    for key,object in pairs(pack) do if key~="character" and typeof(object)=="Instance" then pcall(function() object:Destroy() end) end end
+    ESP[p]=nil
+end
+local function makeESP(p)
+    clearESP(p)
+    local pack={}
+    local box=Instance.new("Frame",ESPGui); box.BackgroundTransparency=1; box.BorderSizePixel=0; box.Visible=false
+    local outline=Instance.new("UIStroke",box); outline.Thickness=1.5
+    pack.box=box; pack.outline=outline
+    local text=Instance.new("TextLabel",ESPGui); text.BackgroundTransparency=1; text.TextStrokeTransparency=0.25; text.Font=Enum.Font.GothamBold; text.TextSize=12; text.TextWrapped=false; text.Visible=false
+    pack.text=text
+    local line=Instance.new("Frame",ESPGui); line.BorderSizePixel=0; line.AnchorPoint=Vector2.new(0.5,0.5); line.Visible=false
+    pack.line=line
+    pack.character=p.Character
+    ESP[p]=pack
+    return pack
+end
+local function projectedBounds(char,camera)
+    local cf,size=char:GetBoundingBox()
+    local minX,minY,maxX,maxY=math.huge,math.huge,-math.huge,-math.huge
+    for x=-1,1,2 do for y=-1,1,2 do for z=-1,1,2 do
+        local point=camera:WorldToViewportPoint(cf:PointToWorldSpace(Vector3.new(x*size.X/2,y*size.Y/2,z*size.Z/2)))
+        if point.Z<=0.1 then return nil end
+        minX=math.min(minX,point.X); minY=math.min(minY,point.Y)
+        maxX=math.max(maxX,point.X); maxY=math.max(maxY,point.Y)
+    end end end
+    local viewport=camera.ViewportSize
+    if maxX<0 or maxY<0 or minX>viewport.X or minY>viewport.Y then return nil end
+    return minX,minY,maxX,maxY
+end
+local espConnection=connect(RS.RenderStepped,function()
+    local camera=workspace.CurrentCamera
+    local enabled=not S.Panic and (S.Chams or S.NameESP or S.DistESP or S.HPESP or S.WeaponESP or S.BoxESP or S.Tracers)
+    if not camera or not enabled then for p in pairs(ESP) do clearESP(p) end; return end
+    for _,p in ipairs(Players:GetPlayers()) do
+        if p~=LP then
+            local char=p.Character
+            local root=char and char:FindFirstChild("HumanoidRootPart")
+            local localRoot=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            local checkPart=char and (char:FindFirstChild("Head") or root)
+            local withinRange=root and (not localRoot or (root.Position-localRoot.Position).Magnitude<=(S.ESPMaxDist or S.MaxDist))
+            if not alive(p) or not root or not withinRange or not wallOk(checkPart) then clearESP(p)
+            else
+                local pack=ESP[p]
+                if not pack or pack.character~=char then pack=makeESP(p) end
+                local color=S.ESPColor
+                if S.Chams then
+                    if not pack.hl then
+                        local h=Instance.new("Highlight"); h.Adornee=char; h.FillTransparency=S.ChamsFill or 0.5; h.OutlineTransparency=S.ChamsOutline or 0; h.Parent=char; pack.hl=h
+                    end
+                    pack.hl.FillColor=color; pack.hl.OutlineColor=color; pack.hl.FillTransparency=S.ChamsFill or 0.5; pack.hl.OutlineTransparency=S.ChamsOutline or 0
+                    pack.hl.DepthMode=(S.WallCheck or S.VisibleOnly) and Enum.HighlightDepthMode.Occluded or Enum.HighlightDepthMode.AlwaysOnTop
+                elseif pack.hl then pack.hl:Destroy(); pack.hl=nil end
+                local x1,y1,x2,y2=projectedBounds(char,camera)
+                pack.box.Visible=S.BoxESP and x1~=nil
+                pack.text.Visible=(S.NameESP or S.DistESP or S.HPESP or S.WeaponESP) and x1~=nil
+                pack.line.Visible=S.Tracers and x1~=nil
+                if x1 then
+                    pack.box.Position=UDim2.fromOffset(x1,y1); pack.box.Size=UDim2.fromOffset(x2-x1,y2-y1); pack.outline.Color=color
+                    local bits={}
+                    if S.NameESP then table.insert(bits,p.DisplayName.." (@"..p.Name..")") end
+                    if S.DistESP and localRoot then table.insert(bits,tostring(math.floor((root.Position-localRoot.Position).Magnitude)).." studs") end
+                    if S.HPESP then local h=char:FindFirstChildOfClass("Humanoid"); if h then table.insert(bits,tostring(math.floor(h.Health)).." HP") end end
+                    if S.WeaponESP then local tool=char:FindFirstChildOfClass("Tool"); if tool then table.insert(bits,tool.Name) end end
+                    pack.text.Text=table.concat(bits," | "); pack.text.TextColor3=color
+                    local width=math.max(x2-x1,360)
+                    pack.text.Size=UDim2.fromOffset(width,20); pack.text.Position=UDim2.fromOffset((x1+x2-width)/2,y1-22)
+                    local a=Vector2.new(camera.ViewportSize.X/2,camera.ViewportSize.Y-4)
+                    local b=Vector2.new((x1+x2)/2,y2); local delta=b-a; local center=(a+b)/2
+                    pack.line.Position=UDim2.fromOffset(center.X,center.Y); pack.line.Size=UDim2.fromOffset(delta.Magnitude,1.5)
+                    pack.line.Rotation=math.deg(math.atan2(delta.Y,delta.X)); pack.line.BackgroundColor3=color
+                end
+            end
+        end
+    end
+end)
+local espRemoving=connect(Players.PlayerRemoving,clearESP)
+connect(Gui.Destroying,function()
+    espConnection:Disconnect(); espRemoving:Disconnect()
+    for p in pairs(ESP) do clearESP(p) end
+    ESPGui:Destroy()
+end)
+
+pcall(function() local vu=game:GetService("VirtualUser"); connect(LP.Idled,function() if S.AntiAFK then vu:CaptureController(); vu:ClickButton2(Vector2.new()) end end) end)
+
+local function isAimKey(i) if S.AimKeyMouse then return i.UserInputType==S.AimKey end return i.KeyCode==S.AimKey end
+connect(UIS.InputBegan,function(i,g)
+    if isAimKey(i) and S.Aimbot and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu() then
+        if S.AimMode=="Toggle" then S.AimOn=not S.AimOn else HK=true end
+    end
+	if g or bindingCapture or UIS:GetFocusedTextBox() then return end
+	if i.KeyCode==Enum.KeyCode.RightShift then Main.Visible=not Main.Visible end
+	if i.KeyCode==S.PanicKey then if S.Panic then S.Panic=false else panicAll() end; return end
+    if S.Panic then return end
+    Cam=workspace.CurrentCamera; if not Cam then return end
+
+	if S.Dash and not pointerOverMenu() and i.KeyCode==Enum.KeyCode.Q and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+		local hrp=LP.Character.HumanoidRootPart; hrp.AssemblyLinearVelocity=Cam.CFrame.LookVector*S.DashPower+Vector3.new(0,20,0)
+	end
+	if S.ClickTP and not pointerOverMenu() and i.UserInputType==Enum.UserInputType.MouseButton1 and Mouse.Hit and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+		LP.Character.HumanoidRootPart.CFrame=CFrame.new(Mouse.Hit.Position+Vector3.new(0,3,0))
+	end
+	if S.Freecam and i.KeyCode==Enum.KeyCode.P and UIS:IsKeyDown(Enum.KeyCode.LeftShift) then
+		if freecamConn then stopFreecam()
+		else
+			Cam=workspace.CurrentCamera; if not Cam then return end; freecamPos=Cam.CFrame; setProperty("Freecam",Cam,"CameraType",Enum.CameraType.Scriptable); setProperty("Freecam",Cam,"CFrame",freecamPos)
+			freecamConn=connect(RS.RenderStepped,function(dt)
+                if S.Panic or not S.Freecam or UIS:GetFocusedTextBox() then return end
+				local dir=Vector3.zero
+				if UIS:IsKeyDown(Enum.KeyCode.W) then dir+=Cam.CFrame.LookVector end
+				if UIS:IsKeyDown(Enum.KeyCode.S) then dir-=Cam.CFrame.LookVector end
+				if UIS:IsKeyDown(Enum.KeyCode.A) then dir-=Cam.CFrame.RightVector end
+				if UIS:IsKeyDown(Enum.KeyCode.D) then dir+=Cam.CFrame.RightVector end
+				if UIS:IsKeyDown(Enum.KeyCode.E) then dir+=Vector3.yAxis end
+				if UIS:IsKeyDown(Enum.KeyCode.Q) then dir-=Vector3.yAxis end
+				freecamPos=freecamPos+dir*60*dt; Cam.CFrame=CFrame.new(freecamPos.Position,freecamPos.Position+freecamPos.LookVector)
+			end)
+		end
+	end
+end)
+connect(UIS.InputEnded,function(i) if isAimKey(i) then HK=false end end)
+
+
+connect(workspace.DescendantAdded,function(object)
+    if not S.Panic and S.NoParticles and (object:IsA("ParticleEmitter") or object:IsA("Trail") or object:IsA("Smoke")) then setProperty("NoParticles",object,"Enabled",false) end
+end)
+panicAll=function()
+    for key,value in pairs(S) do
+        if type(value)=="boolean" and key~="AimKeyMouse" and key~="Panic" then S[key]=false end
+    end
+    S.Panic=true; S.AimOn=false; HK=false; CT=nil; bindingCapture=false
+    if cancelCapture then cancelCapture() end
+    stopFreecam()
+    if BV then BV:Destroy(); BV=nil end
+    if BG then BG:Destroy(); BG=nil end
+    restoreAll(); particlesApplied=false
+    for player in pairs(ESP) do clearESP(player) end
+    for player,dot in pairs(radarDots) do dot:Destroy(); radarDots[player]=nil end
+    WM.Visible=false; RadarF.Visible=false
+    if FOVc then FOVc.Visible=false end
+    for _,line in pairs(CH) do line.Visible=false end
+    for _,refresh in ipairs(configRefresh) do pcall(refresh) end
+end
+dispose=function(destroyGui)
+    if not running then return end
+    panicAll()
+    running=false
+    pcall(function() RS:UnbindFromRenderStep(aimRenderName) end)
+    for _,connection in ipairs(connections) do pcall(function() connection:Disconnect() end) end
+    table.clear(connections)
+    if FOVc then pcall(function() FOVc:Remove() end); FOVc=nil end
+    for key,line in pairs(CH) do pcall(function() line:Remove() end); CH[key]=nil end
+    pcall(function() ESPGui:Destroy() end)
+    if destroyGui then pcall(function() Gui:Destroy() end) end
+end
+Gui.Destroying:Connect(function() dispose(false) end)
+
+print("[combat ultra] audited build loaded | RShift = menu | End = panic | unimplemented modules are labeled")
+
+task.defer(runAutoExec)
