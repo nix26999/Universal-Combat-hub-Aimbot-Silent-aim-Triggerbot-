@@ -1,4 +1,4 @@
--- COMBAT HUB ULTRA — all modules
+-- COMBAT HUB — all modules
 -- RShift = menu
 
 local Players = game:GetService("Players")
