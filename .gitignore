@@ -75,6 +75,7 @@ local S = {
 	AutoInspect=false, InspectKey=Enum.KeyCode.F, InspectDelay=0.35,
 	AutoEmote=false, EmoteDelay=0.6, EmoteKey=Enum.KeyCode.Period,
 	InspectOnKill=true, EmoteOnKill=true,
+	AutoRejoin=true, RejoinDelay=2, RejoinSameServer=true, RejoinOnKick=true, RejoinOnLeave=true,
 }
 
 
@@ -254,6 +255,8 @@ loadAutoExecPrefs()
 
 
 local CT, HK, lastSwitch, ESP, OSZ = nil, false, 0, {}, {}
+local intentionalLeave, rejoinScheduled = false, false
+local savedPlaceId, savedJobId = game.PlaceId, game.JobId
 local bindingCapture=false
 local function aimPosition()
     local camera=workspace.CurrentCamera
@@ -594,7 +597,7 @@ end
 
 
 -- theme
-local T={bg=Color3.fromRGB(12,12,16),panel=Color3.fromRGB(18,18,24),p2=Color3.fromRGB(24,24,32),card=Color3.fromRGB(22,22,30),stroke=Color3.fromRGB(40,40,55),acc=Color3.fromRGB(88,140,255),txt=Color3.fromRGB(235,235,245),dim=Color3.fromRGB(140,140,160),mut=Color3.fromRGB(90,90,110),ok=Color3.fromRGB(80,200,120),bad=Color3.fromRGB(220,70,80)}
+local T={bg=Color3.fromRGB(12,12,16),panel=Color3.fromRGB(18,18,24),p2=Color3.fromRGB(24,24,32),card=Color3.fromRGB(22,22,30),stroke=Color3.fromRGB(40,40,55),acc=Color3.fromRGB(168,85,255),txt=Color3.fromRGB(235,235,245),dim=Color3.fromRGB(140,140,160),mut=Color3.fromRGB(90,90,110),ok=Color3.fromRGB(80,200,120),bad=Color3.fromRGB(220,70,80)}
 local function corner(p,r) local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,r or 8); c.Parent=p end
 local function stroke(p,c) local s=Instance.new("UIStroke"); s.Color=c or T.stroke; s.Thickness=1; s.Parent=p end
 
@@ -785,7 +788,13 @@ local TIPS = {
 	["Emote On Kill"]="Emote after you get a kill.",
 	["Emote Key"]="Key used for emote (often . or B — depends on game).",
 	["Emote Delay After Kill"]="Seconds to wait after a kill before emoting.",
+	["Auto Rejoin"]="Automatically rejoin if kicked or disconnected.",
+	["Rejoin Delay"]="Seconds to wait before rejoining.",
+	["Same Server"]="Try to rejoin the same server instance (JobId).",
+	["On Kick / Error"]="Rejoin when a kick/error disconnect is detected.",
+	["On Accidental Leave"]="Rejoin if you leave/disconnect unexpectedly.",
 }
+
 
 
 
@@ -813,7 +822,7 @@ Tip.ZIndex = 200
 Tip.Parent = Gui
 corner(Tip, 8)
 local tipStroke = Instance.new("UIStroke", Tip)
-tipStroke.Color = Color3.fromRGB(70, 120, 200)
+tipStroke.Color = Color3.fromRGB(168, 85, 255)
 local tipPad = Instance.new("UIPadding", Tip)
 tipPad.PaddingTop = UDim.new(0, 8)
 tipPad.PaddingBottom = UDim.new(0, 8)
@@ -822,7 +831,7 @@ tipPad.PaddingRight = UDim.new(0, 10)
 local tipTitle = Instance.new("TextLabel", Tip)
 tipTitle.Size = UDim2.new(1, 0, 0, 16)
 tipTitle.BackgroundTransparency = 1
-tipTitle.TextColor3 = Color3.fromRGB(160, 200, 255)
+tipTitle.TextColor3 = Color3.fromRGB(200, 160, 255)
 tipTitle.Font = Enum.Font.GothamBold
 tipTitle.TextSize = 12
 tipTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -895,16 +904,16 @@ local SPad=Instance.new("UIPadding",Scroll); SPad.PaddingLeft=UDim.new(0,14); SP
 local SList=Instance.new("UIListLayout",Scroll); SList.Padding=UDim.new(0,10); SList.SortOrder=Enum.SortOrder.LayoutOrder
 
 local cats={
-	{id="aim",n="Aim",d="Lock, assist, filters, humanize"},
-	{id="rage",n="Rage",d="Hitbox, aura, force head, taps"},
-	{id="legit",n="Legit",d="Recoil, spread, weapon helpers"},
-	{id="visuals",n="Visuals",d="ESP, radar, hit markers"},
-	{id="move",n="Move",d="Speed, fly, dash, parkour"},
-	{id="player",n="Player",d="God, ammo, spin, anti-aim"},
+	{id="aim",n="Aim",d="Aimbot, silent, assist, FOV, filters"},
+	{id="rage",n="Rage",d="Triggerbot, aura, hitbox, perfect nade"},
+	{id="legit",n="Legit",d="Recoil, spread, reload, crouch/stop on shoot"},
+	{id="visuals",n="Visuals",d="ESP, radar, grenade arc, watermark"},
+	{id="move",n="Move",d="Speed, fly, jiggle peek, parkour"},
+	{id="player",n="Player",d="God, heal, inspect on kill, anti-aim"},
 	{id="world",n="World",d="Lighting, FOV, freecam"},
-	{id="util",n="Util",d="Server, panic, watermark"},
-	{id="social",n="Social",d="Chat and emote tools"},
-	{id="config",n="Configs",d="Save, load, import, export and reset profiles"},
+	{id="util",n="Util",d="Auto rejoin, server hop, panic"},
+	{id="social",n="Social",d="Chat spam, emotes on kill"},
+	{id="config",n="Configs",d="Save, load, import, export, auto execute"},
 }
 local pages, sideBtns, cur, ord = {}, {}, nil, {}
 local function nord(p) ord[p]=(ord[p] or 0)+1; return ord[p] end
@@ -977,6 +986,7 @@ local settingsOwner={
     JiggleDist="JigglePeek",JiggleADS="JigglePeek",JiggleShoot="JigglePeek",
     InspectKey="AutoInspect",InspectDelay="AutoInspect",InspectOnKill="AutoInspect",
     EmoteDelay="AutoEmote",EmoteKey="AutoEmote",EmoteOnKill="AutoEmote",
+    RejoinDelay="AutoRejoin",RejoinSameServer="AutoRejoin",RejoinOnKick="AutoRejoin",RejoinOnLeave="AutoRejoin",
 }
 local function settingsParent(parent,key)
     return modulePanels[settingsOwner[key]] or parent
@@ -1133,6 +1143,13 @@ do local p=pages.rage
 	local c2=card(p,"Hitbox","")
 	tog(c2,"Hitbox Expand","Hitbox")
 	slider(c2,"Hitbox Size","HitboxSize",2,30,0)
+	local c3=card(p,"Grenades","")
+	tog(c3,"Perfect Grenade Throw","PerfectThrow")
+	tog(c3,"Auto On Nade","PerfectThrowAuto")
+	slider(c3,"Target Lead","PerfectThrowLead",0,0.5,2)
+	slider(c3,"Aim Smooth","PerfectThrowSmooth",0.05,1,2)
+	slider(c3,"Land Height","PerfectThrowHeight",0,8,1)
+	keybind(c3,"Throw Aim Key",function(k,m) S.PerfectThrowKey=k end,"MouseButton1","PerfectThrowKey")
 end
 
 -- LEGIT
@@ -1155,6 +1172,7 @@ do local p=pages.legit
 	tog(c2,"Rapid Fire","RapidFire")
 	tog(c2,"Auto Reload","AutoReload")
 	keybind(c2,"Reload Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.AutoReloadKey=k end end,"R","AutoReloadKey")
+	tog(c2,"Infinite Ammo","InfAmmo")
 	tog(c2,"Auto Crouch On Shoot","AutoCrouchShoot")
 	keybind(c2,"Crouch Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.CrouchKey=k end end,"LeftShift","CrouchKey")
 	tog(c2,"Stop Move On Shoot","StopMoveShoot")
@@ -1187,6 +1205,7 @@ do local p=pages.visuals
 	slider(c2,"Crosshair Size","CrosshairSize",2,20,0)
 	
 	slider(c2,"Crosshair Gap","CrosshairGap",0,12,0)
+	tog(c2,"Watermark","Watermark")
 	local c3=card(p,"ESP Style","")
 	slider(c3,"Box Thickness","BoxThickness",1,4,1)
 	slider(c3,"Tracer Thickness","TracerThickness",1,4,1)
@@ -1213,13 +1232,6 @@ do local p=pages.visuals
 	slider(c4,"Line Thickness","GrenThickness",1,5,0)
 	tog(c4,"Simulate Bounce","GrenBounce")
 	slider(c4,"Max Bounces","GrenMaxBounces",0,5,0)
-	local c5=card(p,"Perfect Throw","Aim throw to land on target")
-	tog(c5,"Perfect Grenade Throw","PerfectThrow")
-	tog(c5,"Auto On Nade","PerfectThrowAuto")
-	slider(c5,"Target Lead","PerfectThrowLead",0,0.5,2)
-	slider(c5,"Aim Smooth","PerfectThrowSmooth",0.05,1,2)
-	slider(c5,"Land Height","PerfectThrowHeight",0,8,1)
-	keybind(c5,"Throw Aim Key",function(k,m) S.PerfectThrowKey=k end,"MouseButton1","PerfectThrowKey")
 	local c6=card(p,"Grenade Auto Setup","Watch a real throw and tune both modules")
 	btn(c6,"Auto Find Perfect Settings",function()
 		startGrenadeCalibrate()
@@ -1287,17 +1299,13 @@ end
 -- PLAYER
 do local p=pages.player
 	local c=card(p,"Local","")
-	tog(c,"Infinite Ammo","InfAmmo"); tog(c,"God Mode","God"); tog(c,"Anti AFK","AntiAFK")
+	tog(c,"God Mode","God"); tog(c,"Anti AFK","AntiAFK")
 	tog(c,"No Fall Damage","NoFall"); tog(c,"Anti Stun / Slow","AntiStun")
 	tog(c,"Auto Heal","AutoHeal"); tog(c,"Inf Stamina (best effort)","InfStamina")
 	tog(c,"Auto Inspect Gun","AutoInspect")
 	tog(c,"Inspect On Kill","InspectOnKill")
 	keybind(c,"Inspect Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.InspectKey=k end end,"F","InspectKey")
 	slider(c,"Inspect Delay After Kill","InspectDelay",0.1,3,2)
-	tog(c,"Auto Emote","AutoEmote")
-	tog(c,"Emote On Kill","EmoteOnKill")
-	keybind(c,"Emote Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.EmoteKey=k end end,"Period","EmoteKey")
-	slider(c,"Emote Delay After Kill","EmoteDelay",0.1,3,2)
 	local c2=card(p,"Anti-Aim","")
 	tog(c2,"Spinbot","Spinbot"); slider(c2,"Spin Speed","SpinSpd",5,50,0); tog(c2,"Anti Aim","AntiAim")
 end
@@ -1323,9 +1331,13 @@ end
 -- UTIL
 do local p=pages.util
 	local c=card(p,"Session","")
-	tog(c,"Watermark","Watermark")
+	tog(c,"Auto Rejoin","AutoRejoin")
+	slider(c,"Rejoin Delay","RejoinDelay",0.5,10,1)
+	tog(c,"Same Server","RejoinSameServer")
+	tog(c,"On Kick / Error","RejoinOnKick")
+	tog(c,"On Accidental Leave","RejoinOnLeave")
 	keybind(c,"Panic Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.PanicKey=k end end,"End","PanicKey")
-	btn(c,"REJOIN",function() pcall(function() TP:Teleport(game.PlaceId,LP) end) end)
+	btn(c,"REJOIN",function() intentionalLeave=true; pcall(function() TP:Teleport(game.PlaceId,LP) end) end)
 	btn(c,"SERVER HOP",function()
 		pcall(function()
 			local data=HS:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
@@ -1336,7 +1348,7 @@ do local p=pages.util
 		panicAll()
 	end,true)
 	btn(c,"Unload",function()
-        dispose(true)
+        intentionalLeave=true; dispose(true)
 	end,true)
 end
 
@@ -1369,7 +1381,12 @@ do local p=pages.social
 
 	slider(c,"Chat Delay","ChatDelay",1,10,0)
 	btn(c,"Send Test Message",function() sendChatMessage(S.ChatMsg) end)
-	tog(c,"Emote Spam (best effort)","EmoteSpam")
+	local c2=card(p,"Emotes","")
+	tog(c2,"Auto Emote","AutoEmote")
+	tog(c2,"Emote On Kill","EmoteOnKill")
+	keybind(c2,"Emote Key",function(k) if typeof(k)=="EnumItem" and k.EnumType==Enum.KeyCode then S.EmoteKey=k end end,"Period","EmoteKey")
+	slider(c2,"Emote Delay After Kill","EmoteDelay",0.1,3,2)
+	tog(c2,"Emote Spam (best effort)","EmoteSpam")
 end
 
 
@@ -1989,6 +2006,88 @@ connect(Players.PlayerRemoving, function(p)
 	recentCombat[p] = nil
 end)
 
+
+
+-- Auto rejoin on kick / disconnect / accidental leave
+local function doRejoin(reason)
+	if not S.AutoRejoin or rejoinScheduled then return end
+	if intentionalLeave and not S.RejoinOnLeave then return end
+	rejoinScheduled = true
+	local delay = S.RejoinDelay or 2
+	print("[combat hub] auto-rejoin in "..tostring(delay).."s ("..tostring(reason)..")")
+	task.delay(delay, function()
+		pcall(function()
+			if S.RejoinSameServer and savedJobId and #tostring(savedJobId) > 0 then
+				TP:TeleportToPlaceInstance(savedPlaceId, savedJobId, LP)
+			else
+				TP:Teleport(savedPlaceId, LP)
+			end
+		end)
+		task.delay(5, function() rejoinScheduled = false end)
+	end)
+end
+
+pcall(function()
+	local GuiService = game:GetService("GuiService")
+	connect(GuiService.ErrorMessageChanged, function(msg)
+		if not S.AutoRejoin or not S.RejoinOnKick then return end
+		if msg and #tostring(msg) > 0 then
+			doRejoin("error: "..tostring(msg):sub(1,80))
+		end
+	end)
+end)
+
+pcall(function()
+	connect(TP.TeleportInitFailed, function(player, result, err)
+		if player ~= LP then return end
+		if not S.AutoRejoin then return end
+		rejoinScheduled = false
+		doRejoin("teleport failed: "..tostring(err))
+	end)
+end)
+
+-- detect kick-style prompts in CoreGui
+pcall(function()
+	local core = game:GetService("CoreGui")
+	connect(core.DescendantAdded, function(obj)
+		if not S.AutoRejoin or not S.RejoinOnKick then return end
+		local n = obj.Name:lower()
+		if n:find("error",1,true) or n:find("kick",1,true) or n:find("disconnect",1,true) or n:find("prompt",1,true) then
+			local text = ""
+			pcall(function()
+				if obj:IsA("TextLabel") or obj:IsA("TextButton") then text = obj.Text:lower() end
+			end)
+			if text:find("kick") or text:find("disconnect") or text:find("lost connection") or text:find("same account") or text:find("error") then
+				doRejoin("coregui: "..text:sub(1,60))
+			end
+		end
+	end)
+end)
+
+-- accidental leave / player removal
+pcall(function()
+	connect(Players.PlayerRemoving, function(p)
+		if p ~= LP then return end
+		if not S.AutoRejoin then return end
+		if intentionalLeave and not S.RejoinOnLeave then return end
+		if S.RejoinOnLeave or S.RejoinOnKick then
+			doRejoin("player removing")
+		end
+	end)
+end)
+
+-- network disconnect hint via LocalPlayer parent
+pcall(function()
+	connect(LP.AncestryChanged, function(_, parent)
+		if parent == nil and S.AutoRejoin then
+			doRejoin("ancestry nil")
+		end
+	end)
+end)
+
+-- mark intentional leave when user hits unload/rejoin buttons we control
+local _oldDispose = dispose
+-- wrapped later if dispose exists; also hook REJOIN button is intentional
 
 --------------------------------------------------------------------
 -- LOGIC
@@ -2660,6 +2759,7 @@ panicAll=function()
 end
 dispose=function(destroyGui)
     if not running then return end
+    intentionalLeave=true
     panicAll()
     running=false
     pcall(function() RS:UnbindFromRenderStep(aimRenderName) end)
