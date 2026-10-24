@@ -877,7 +877,22 @@ local function bindTip(row, name)
 end
 
 
-local Main=Instance.new("Frame",Gui); Main.Size=UDim2.new(0,760,0,540); Main.Position=UDim2.new(.5,-380,.5,-270); Main.BackgroundColor3=T.bg; Main.BorderSizePixel=0; Main.Active=true; Main.Draggable=true; corner(Main,12); stroke(Main)
+local SCRIPT_KEY="combat-hub" -- post this key in your Discord
+local KEY_FILE="CombatHub_key.txt"
+local hubUnlocked=false
+local function keyAlreadySaved()
+	if typeof(readfile)~="function" or typeof(isfile)~="function" then return false end
+	local ok,data=pcall(function()
+		if not isfile(KEY_FILE) then return false end
+		return (readfile(KEY_FILE) or ""):gsub("%s+","")
+	end)
+	return ok and data==SCRIPT_KEY
+end
+local function saveKeyUnlock()
+	if typeof(writefile)=="function" then pcall(writefile,KEY_FILE,SCRIPT_KEY) end
+end
+if keyAlreadySaved() then hubUnlocked=true end
+local Main=Instance.new("Frame",Gui); Main.Size=UDim2.new(0,760,0,540); Main.Position=UDim2.new(.5,-380,.5,-270); Main.BackgroundColor3=T.bg; Main.BorderSizePixel=0; Main.Active=true; Main.Draggable=true; Main.Visible=hubUnlocked; corner(Main,12); stroke(Main)
 
 local function pointerOverMenu()
     if not Main.Visible then return false end
@@ -941,6 +956,68 @@ local function openDiscordInvite()
 	showLinkCopiedToast()
 end
 connect(DiscordBtn.MouseButton1Click,openDiscordInvite)
+-- Key page: join Discord to get key before hub unlocks
+local keyPage=nil
+if not hubUnlocked then
+	keyPage=Instance.new("Frame",Gui)
+	keyPage.Name="KeyPage"
+	keyPage.Size=UDim2.new(0,420,0,320)
+	keyPage.Position=UDim2.new(0.5,-210,0.5,-160)
+	keyPage.BackgroundColor3=T.bg
+	keyPage.BorderSizePixel=0
+	keyPage.Active=true
+	keyPage.ZIndex=50
+	corner(keyPage,12); stroke(keyPage)
+	local kt=Instance.new("TextLabel",keyPage)
+	kt.Size=UDim2.new(1,-32,0,28); kt.Position=UDim2.new(0,16,0,18)
+	kt.BackgroundTransparency=1; kt.Text="COMBAT HUB — Key Required"
+	kt.TextColor3=T.txt; kt.Font=Enum.Font.GothamBold; kt.TextSize=18
+	kt.TextXAlignment=Enum.TextXAlignment.Left; kt.ZIndex=51
+	local kd=Instance.new("TextLabel",keyPage)
+	kd.Size=UDim2.new(1,-32,0,48); kd.Position=UDim2.new(0,16,0,52)
+	kd.BackgroundTransparency=1
+	kd.Text="Join our Discord to get the free key, then paste it below to unlock the script."
+	kd.TextColor3=T.dim; kd.Font=Enum.Font.Gotham; kd.TextSize=13; kd.TextWrapped=true
+	kd.TextXAlignment=Enum.TextXAlignment.Left; kd.TextYAlignment=Enum.TextYAlignment.Top; kd.ZIndex=51
+	local keyDiscord=Instance.new("TextButton",keyPage)
+	keyDiscord.Size=UDim2.new(1,-32,0,36); keyDiscord.Position=UDim2.new(0,16,0,110)
+	keyDiscord.BackgroundColor3=Color3.fromRGB(88,101,242); keyDiscord.Text="Join Discord"
+	keyDiscord.TextColor3=Color3.new(1,1,1); keyDiscord.Font=Enum.Font.GothamBold; keyDiscord.TextSize=14; keyDiscord.ZIndex=51
+	corner(keyDiscord,8)
+	connect(keyDiscord.MouseButton1Click,openDiscordInvite)
+	local keyBox=Instance.new("TextBox",keyPage)
+	keyBox.Size=UDim2.new(1,-32,0,36); keyBox.Position=UDim2.new(0,16,0,158)
+	keyBox.BackgroundColor3=T.p2; keyBox.Text=""; keyBox.PlaceholderText="Enter key from Discord..."
+	keyBox.TextColor3=T.txt; keyBox.PlaceholderColor3=T.mut; keyBox.Font=Enum.Font.Gotham; keyBox.TextSize=14
+	keyBox.ClearTextOnFocus=false; keyBox.ZIndex=51
+	corner(keyBox,8)
+	local keyStatus=Instance.new("TextLabel",keyPage)
+	keyStatus.Size=UDim2.new(1,-32,0,20); keyStatus.Position=UDim2.new(0,16,0,200)
+	keyStatus.BackgroundTransparency=1; keyStatus.Text=""; keyStatus.TextColor3=T.bad
+	keyStatus.Font=Enum.Font.Gotham; keyStatus.TextSize=12
+	keyStatus.TextXAlignment=Enum.TextXAlignment.Left; keyStatus.ZIndex=51
+	local keySubmit=Instance.new("TextButton",keyPage)
+	keySubmit.Size=UDim2.new(1,-32,0,40); keySubmit.Position=UDim2.new(0,16,0,232)
+	keySubmit.BackgroundColor3=T.acc; keySubmit.Text="Unlock Script"
+	keySubmit.TextColor3=Color3.fromRGB(20,12,8); keySubmit.Font=Enum.Font.GothamBold; keySubmit.TextSize=15; keySubmit.ZIndex=51
+	corner(keySubmit,8)
+	local function tryUnlock()
+		local entered=(keyBox.Text or ""):gsub("^%s+",""):gsub("%s+$","")
+		if entered=="" then keyStatus.Text="Enter a key first."; keyStatus.TextColor3=T.bad; return end
+		if entered:lower()==SCRIPT_KEY:lower() then
+			hubUnlocked=true
+			saveKeyUnlock()
+			keyStatus.Text="Unlocked!"; keyStatus.TextColor3=T.ok
+			Main.Visible=true
+			if keyPage then keyPage:Destroy(); keyPage=nil end
+		else
+			keyStatus.Text="Invalid key — join Discord to get the correct one."
+			keyStatus.TextColor3=T.bad
+		end
+	end
+	connect(keySubmit.MouseButton1Click,tryUnlock)
+	connect(keyBox.FocusLost,function(enter) if enter then tryUnlock() end end)
+end
 local Close=Instance.new("TextButton",Top); Close.Size=UDim2.new(0,28,0,28); Close.Position=UDim2.new(1,-36,0.5,-14); Close.BackgroundColor3=T.p2; Close.Text="x"; Close.TextColor3=T.dim; Close.Font=Enum.Font.GothamBold; Close.TextSize=16; corner(Close,6)
 connect(Close.MouseButton1Click,function() Main.Visible=false end)
 
@@ -2752,7 +2829,7 @@ connect(UIS.InputBegan,function(i,g)
         if S.AimMode=="Toggle" then S.AimOn=not S.AimOn else HK=true end
     end
 	if g or bindingCapture or UIS:GetFocusedTextBox() then return end
-	if i.KeyCode==Enum.KeyCode.RightShift then Main.Visible=not Main.Visible end
+	if i.KeyCode==Enum.KeyCode.RightShift and hubUnlocked then Main.Visible=not Main.Visible end
 	if S.JigglePeek and S.JiggleMode=="Toggle" and typeof(S.JiggleKey)=="EnumItem" and S.JiggleKey.EnumType==Enum.KeyCode and i.KeyCode==S.JiggleKey then
 		jiggleOn = not jiggleOn
 	end
