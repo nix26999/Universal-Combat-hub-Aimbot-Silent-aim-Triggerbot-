@@ -877,7 +877,7 @@ local function bindTip(row, name)
 end
 
 
-local SCRIPT_KEY="combat-hub" -- post this key in your Discord
+local SCRIPT_KEY="J1nxhub01932456" -- post this key in your Discord
 local KEY_FILE="CombatHub_key.txt"
 local hubUnlocked=false
 local function keyAlreadySaved()
@@ -968,8 +968,17 @@ if not hubUnlocked then
 	keyPage.Active=true
 	keyPage.ZIndex=50
 	corner(keyPage,12); stroke(keyPage)
+	local keyClose=Instance.new("TextButton",keyPage)
+	keyClose.Size=UDim2.new(0,28,0,28); keyClose.Position=UDim2.new(1,-36,0,12)
+	keyClose.BackgroundColor3=T.p2; keyClose.Text="x"; keyClose.TextColor3=T.dim
+	keyClose.Font=Enum.Font.GothamBold; keyClose.TextSize=16; keyClose.ZIndex=52
+	corner(keyClose,6)
+	connect(keyClose.MouseButton1Click,function()
+		if keyPage then keyPage:Destroy(); keyPage=nil end
+		pcall(function() if Gui.Parent then Gui:Destroy() end end)
+	end)
 	local kt=Instance.new("TextLabel",keyPage)
-	kt.Size=UDim2.new(1,-32,0,28); kt.Position=UDim2.new(0,16,0,18)
+	kt.Size=UDim2.new(1,-56,0,28); kt.Position=UDim2.new(0,16,0,18)
 	kt.BackgroundTransparency=1; kt.Text="COMBAT HUB — Key Required"
 	kt.TextColor3=T.txt; kt.Font=Enum.Font.GothamBold; kt.TextSize=18
 	kt.TextXAlignment=Enum.TextXAlignment.Left; kt.ZIndex=51
