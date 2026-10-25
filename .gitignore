@@ -1,5 +1,4 @@
--- COMBAT HUB V1.5 MOBILE
--- Touch UI update; executor-dependent modules are not universally supported.
+-- COMBAT HUB V1.5 | Mobile UI revision
 -- COMBAT HUB — all modules
 -- RShift = menu
 
@@ -143,7 +142,6 @@ local lastFlashScan=0
 local cancelCapture
 
 -- Config profiles
-S.MobileMode = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local configDefaults=table.clone(S)
 local configRefresh,configCallbacks,configRules={},{},{}
 local function encodeConfig()
@@ -257,14 +255,13 @@ end
 loadAutoExecPrefs()
 
 
-local alive, pointerOverMenu
 local CT, HK, lastSwitch, ESP, OSZ = nil, false, 0, {}, {}
 local intentionalLeave, rejoinScheduled = false, false
 local savedPlaceId, savedJobId = game.PlaceId, game.JobId
 local bindingCapture=false
 local function aimPosition()
     local camera=workspace.CurrentCamera
-    if camera and (S.MobileMode or S.AimMethod=="Camera" or UIS.MouseBehavior==Enum.MouseBehavior.LockCenter) then return camera.ViewportSize/2 end
+    if camera and (S.AimMethod=="Camera" or UIS.MouseBehavior==Enum.MouseBehavior.LockCenter) then return camera.ViewportSize/2 end
     return UIS:GetMouseLocation()
 end
 
@@ -898,7 +895,7 @@ end
 if keyAlreadySaved() then hubUnlocked=true end
 local Main=Instance.new("Frame",Gui); Main.Size=UDim2.new(0,760,0,540); Main.Position=UDim2.new(.5,-380,.5,-270); Main.BackgroundColor3=T.bg; Main.BorderSizePixel=0; Main.Active=true; Main.Draggable=true; Main.Visible=hubUnlocked; corner(Main,12); stroke(Main)
 
-pointerOverMenu=function()
+local function pointerOverMenu()
     if not Main.Visible then return false end
     local point=UIS:GetMouseLocation()-game:GetService("GuiService"):GetGuiInset()
     local origin,size=Main.AbsolutePosition,Main.AbsoluteSize
@@ -962,33 +959,16 @@ end
 connect(DiscordBtn.Activated,openDiscordInvite)
 -- Key page: join Discord to get key before hub unlocks
 local keyPage=nil
-local refreshMobileUI
 if not hubUnlocked then
 	keyPage=Instance.new("Frame",Gui)
 	keyPage.Name="KeyPage"
-	keyPage.Size=UDim2.new(0,420,0,372)
-	keyPage.Position=UDim2.new(0.5,-210,0.5,-186)
+	keyPage.Size=UDim2.new(0,420,0,320)
+	keyPage.Position=UDim2.new(0.5,-210,0.5,-160)
 	keyPage.BackgroundColor3=T.bg
 	keyPage.BorderSizePixel=0
 	keyPage.Active=true
 	keyPage.ZIndex=50
 	corner(keyPage,12); stroke(keyPage)
-    do
-        local mode=Instance.new("TextButton",keyPage)
-        mode.Name="MobileModeSwitch"; mode.Size=UDim2.new(1,-32,0,38)
-        mode.Position=UDim2.fromOffset(16,284); mode.BackgroundColor3=T.p2
-        mode.TextColor3=T.txt; mode.Font=Enum.Font.GothamBold; mode.TextSize=14; mode.ZIndex=52
-        corner(mode,8)
-        local function label() mode.Text=S.MobileMode and "Mode: MOBILE  |  Tap for Desktop" or "Mode: DESKTOP  |  Tap for Mobile" end
-        label()
-        connect(mode.Activated,function()
-            S.MobileMode=not S.MobileMode
-            if refreshMobileUI then refreshMobileUI() end
-            label()
-        end)
-        table.insert(configRefresh,function() if mode.Parent then label() end end)
-    end
-
 	local keyClose=Instance.new("TextButton",keyPage)
 	keyClose.Size=UDim2.new(0,28,0,28); keyClose.Position=UDim2.new(1,-36,0,12)
 	keyClose.BackgroundColor3=T.p2; keyClose.Text="x"; keyClose.TextColor3=T.dim
@@ -1194,35 +1174,22 @@ local function slider(parent,name,key,min,max,dec)
 		local v=min+(max-min)*rel; if dec==0 then v=math.floor(v+.5) else v=math.floor(v*10^dec+.5)/10^dec end
 		S[key]=v; fill.Size=UDim2.new(rel,0,1,0); val.Text=fmt(v)
 	end
-	local touchInput=nil
-    local touchScroll=nil
-    local scrollWasEnabled=nil
-    local hit=Instance.new("TextButton",r)
-    hit.Name="SliderTouchTarget"; hit.Text=""; hit.BackgroundTransparency=1
-    hit.Size=UDim2.new(1,0,0,28); hit.Position=UDim2.fromOffset(0,12)
-    local function stopSlide()
-        hold=false; touchInput=nil
-        if touchScroll and touchScroll.Parent then touchScroll.ScrollingEnabled=scrollWasEnabled end
-        touchScroll=nil
-    end
-    connect(hit.InputBegan,function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-            hold=true
-            if i.UserInputType==Enum.UserInputType.Touch then
-                touchInput=i
-                touchScroll=r:FindFirstAncestorWhichIsA("ScrollingFrame")
-                if touchScroll then scrollWasEnabled=touchScroll.ScrollingEnabled; touchScroll.ScrollingEnabled=false end
-            end
-            upd(i.Position.X)
+	local touchInput
+    bar.Active=true
+    connect(bar.InputBegan,function(i)
+        if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+            hold=true; touchInput=i.UserInputType==Enum.UserInputType.Touch and i or nil
+            Scroll.ScrollingEnabled=false; upd(i.Position.X)
         end
     end)
     connect(UIS.InputChanged,function(i)
-        if hold and ((touchInput and i==touchInput) or (not touchInput and i.UserInputType==Enum.UserInputType.MouseMovement)) then upd(i.Position.X) end
+        if hold and (i==touchInput or (not touchInput and i.UserInputType==Enum.UserInputType.MouseMovement)) then upd(i.Position.X) end
     end)
     connect(UIS.InputEnded,function(i)
-        if i==touchInput or (not touchInput and i.UserInputType==Enum.UserInputType.MouseButton1) then stopSlide() end
+        if i==touchInput or (not touchInput and i.UserInputType==Enum.UserInputType.MouseButton1) then
+            hold=false; touchInput=nil; Scroll.ScrollingEnabled=true
+        end
     end)
-    connect(UIS.WindowFocusReleased,stopSlide)
 	bindTip(r, name)
 end
 
@@ -1726,6 +1693,84 @@ end
 end
 
 sideBtns.aim.BackgroundTransparency=0; sideBtns.aim.L.TextColor3=T.txt; pages.aim.Visible=true; cur="aim"; PageTitle.Text="Aim"; PageDesc.Text=cats[1].d
+
+
+-- V1.5: touch UI, responsive layout, and screen switches.
+do
+    local mobile=UIS.TouchEnabled
+    local mainScale=Instance.new("UIScale",Main)
+    local keyScale=keyPage and Instance.new("UIScale",keyPage)
+    local modeButtons={}
+    local function modeButton(parent,position)
+        local b=Instance.new("TextButton",parent)
+        b.Name="DeviceModeSwitch"; b.Size=UDim2.fromOffset(116,30)
+        b.Position=position; b.BackgroundColor3=T.p2; b.TextColor3=T.txt
+        b.Font=Enum.Font.GothamBold; b.TextSize=12; b.ZIndex=60
+        corner(b,6); table.insert(modeButtons,b)
+        return b
+    end
+    local mainSwitch=modeButton(Top,UDim2.new(1,-256,0.5,-15))
+    local keySwitch
+    if keyPage then
+        keyPage.Size=UDim2.fromOffset(420,360)
+        keySwitch=modeButton(keyPage,UDim2.fromOffset(16,312))
+    end
+    local launcher=Instance.new("TextButton",Gui)
+    launcher.Name="MenuSwitch"; launcher.Size=UDim2.fromOffset(112,44)
+    launcher.Position=UDim2.new(1,-124,0,60); launcher.BackgroundColor3=T.acc
+    launcher.Text="SHOW / HIDE"; launcher.TextColor3=T.txt
+    launcher.Font=Enum.Font.GothamBold; launcher.TextSize=12; launcher.ZIndex=150
+    corner(launcher,10)
+    connect(launcher.Activated,function()
+        if hubUnlocked then Main.Visible=not Main.Visible
+        elseif keyPage and keyPage.Parent then keyPage.Visible=not keyPage.Visible end
+    end)
+    local function resize()
+        local camera=workspace.CurrentCamera
+        if not camera then return end
+        local v=camera.ViewportSize
+        local w,h=mobile and 640 or 760,mobile and 500 or 540
+        Main.Size=UDim2.fromOffset(w,h)
+        Main.AnchorPoint=Vector2.new(0.5,0.5); Main.Position=UDim2.fromScale(0.5,0.5)
+        mainScale.Scale=math.min(1,math.max(0.1,(v.X-24)/w),math.max(0.1,(v.Y-48)/h))
+        if keyPage and keyPage.Parent then
+            keyPage.AnchorPoint=Vector2.new(0.5,0.5); keyPage.Position=UDim2.fromScale(0.5,0.5)
+            keyScale.Scale=math.min(1,math.max(0.1,(v.X-24)/420),math.max(0.1,(v.Y-48)/360))
+        end
+        for _,b in ipairs(modeButtons) do
+            if b.Parent then b.Text=mobile and "MOBILE > PC" or "PC > MOBILE" end
+        end
+    end
+    for _,b in ipairs(modeButtons) do connect(b.Activated,function() mobile=not mobile; resize() end) end
+    local function drag(frame,handle)
+        frame.Draggable=false; handle.Active=true
+        local active,start,origin
+        connect(handle.InputBegan,function(i)
+            if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+                active=i; start=i.Position; origin=frame.Position
+            end
+        end)
+        connect(UIS.InputChanged,function(i)
+            if active and (i==active or (active.UserInputType==Enum.UserInputType.MouseButton1 and i.UserInputType==Enum.UserInputType.MouseMovement)) then
+                local d=i.Position-start
+                frame.Position=UDim2.new(origin.X.Scale,origin.X.Offset+d.X,origin.Y.Scale,origin.Y.Offset+d.Y)
+            end
+        end)
+        connect(UIS.InputEnded,function(i) if i==active then active=nil end end)
+    end
+    drag(Main,Title)
+    if keyPage then drag(keyPage,keyPage) end
+    local watchedCamera
+    local viewportConnection
+    local function watchCamera()
+        if viewportConnection then viewportConnection:Disconnect() end
+        watchedCamera=workspace.CurrentCamera
+        if watchedCamera then viewportConnection=connect(watchedCamera:GetPropertyChangedSignal("ViewportSize"),resize) end
+        resize()
+    end
+    connect(workspace:GetPropertyChangedSignal("CurrentCamera"),watchCamera)
+    watchCamera()
+end
 
 -- watermark
 local WM=Instance.new("TextLabel",Gui); WM.Size=UDim2.new(0,260,0,20); WM.Position=UDim2.new(0,10,0,10); WM.BackgroundTransparency=0.3; WM.BackgroundColor3=T.bg; WM.TextColor3=T.txt; WM.Font=Enum.Font.GothamBold; WM.TextSize=11; WM.TextXAlignment=Enum.TextXAlignment.Left; WM.Text="  COMBAT HUB | loading"; corner(WM,4)
@@ -2277,7 +2322,7 @@ local _oldDispose = dispose
 -- LOGIC
 --------------------------------------------------------------------
 local friendshipCache={}
-alive=function(p)
+local function alive(p)
     if not p or p==LP then return false end
     local char=p.Character
     local hum=char and char:FindFirstChildOfClass("Humanoid")
@@ -2742,12 +2787,6 @@ connect(RS.RenderStepped,function()
 	if not BV or BV.Parent~=hrp or not BG or BG.Parent~=hrp then if BV then BV:Destroy() end; if BG then BG:Destroy() end; BV=Instance.new("BodyVelocity"); BV.MaxForce=Vector3.new(9e9,9e9,9e9); BV.Parent=hrp; BG=Instance.new("BodyGyro"); BG.MaxTorque=Vector3.new(9e9,9e9,9e9); BG.Parent=hrp end
 	Cam=workspace.CurrentCamera; if not Cam then return end
 	BG.CFrame=Cam.CFrame; local dir=Vector3.zero
-    if S.MobileMode then
-        local hum=char:FindFirstChildOfClass("Humanoid")
-        if hum then dir+=hum.MoveDirection end
-        if S.MobileFlyUp then dir+=Vector3.yAxis end
-        if S.MobileFlyDown then dir-=Vector3.yAxis end
-    end
 	if UIS:IsKeyDown(Enum.KeyCode.W) then dir+=Cam.CFrame.LookVector end
 	if UIS:IsKeyDown(Enum.KeyCode.S) then dir-=Cam.CFrame.LookVector end
 	if UIS:IsKeyDown(Enum.KeyCode.A) then dir-=Cam.CFrame.RightVector end
@@ -2969,155 +3008,6 @@ dispose=function(destroyGui)
     if destroyGui then pcall(function() Gui:Destroy() end) end
 end
 Gui.Destroying:Connect(function() dispose(false) end)
-
-
--- V1.5: responsive layout, touch navigation, and virtual controls.
-do
-    local scale=Instance.new("UIScale",Main)
-    local keyScale
-    if keyPage then keyScale=Instance.new("UIScale",keyPage) end
-    Main.Draggable=false
-    local controls=Instance.new("Frame",Gui)
-    controls.Name="MobileControls"; controls.BackgroundTransparency=1
-    controls.Size=UDim2.new(0,214,0,144); controls.Position=UDim2.new(1,-224,0,58)
-    controls.ZIndex=110
-    local function button(text,x,y,fn)
-        local b=Instance.new("TextButton",controls)
-        b.Size=UDim2.fromOffset(102,42); b.Position=UDim2.fromOffset(x,y)
-        b.Text=text; b.TextColor3=T.txt; b.BackgroundColor3=T.p2
-        b.Font=Enum.Font.GothamBold; b.TextSize=13; b.ZIndex=111
-        corner(b,8); stroke(b)
-        if fn then connect(b.Activated,fn) end
-        return b
-    end
-    button("MENU",0,0,function() if hubUnlocked then Main.Visible=not Main.Visible end end)
-    local aim=button("AIM: OFF",112,0,function()
-        if not hubUnlocked then return end
-        if S.Panic then return end
-        S.AimMode="Toggle"; S.Aimbot=true; S.AimOn=not S.AimOn
-        for _,fn in ipairs(configRefresh) do pcall(fn) end
-    end)
-    button("PANIC",0,50,function() panicAll() end)
-    button("UNLOAD",112,50,function() dispose(true) end)
-    local up=button("FLY UP",0,100)
-    local down=button("FLY DOWN",112,100)
-    local held={}
-    local function holdButton(b,key)
-        connect(b.InputBegan,function(input)
-            if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then
-                held[input]=key; S[key]=true
-            end
-        end)
-    end
-    holdButton(up,"MobileFlyUp"); holdButton(down,"MobileFlyDown")
-    connect(UIS.InputEnded,function(input)
-        local key=held[input]
-        if key then held[input]=nil; S[key]=false end
-    end)
-    connect(UIS.WindowFocusReleased,function()
-        table.clear(held); S.MobileFlyUp=false; S.MobileFlyDown=false
-    end)
-    local desktopSwitch=Instance.new("TextButton",Top)
-    desktopSwitch.Name="MobileModeSwitch"; desktopSwitch.Size=UDim2.fromOffset(100,28)
-    desktopSwitch.Position=UDim2.new(1,-238,0.5,-14)
-    desktopSwitch.BackgroundColor3=T.p2; desktopSwitch.TextColor3=T.txt
-    desktopSwitch.Font=Enum.Font.GothamBold; desktopSwitch.TextSize=11
-    corner(desktopSwitch,6)
-    connect(desktopSwitch.Activated,function()
-        S.MobileMode=not S.MobileMode
-        refreshMobileUI()
-    end)
-    local function viewport()
-        return Gui.AbsoluteSize
-    end
-    refreshMobileUI=function()
-        local size=viewport()
-        if size.X<1 or size.Y<1 then return end
-        local width,height
-        if S.MobileMode then
-            -- Narrow screens use a narrower canvas, not just a tiny desktop menu.
-            width=math.clamp(size.X-20,320,760)
-            height=math.clamp(size.Y-32,300,650)
-        else
-            width,height=760,540
-        end
-        Main.Size=UDim2.fromOffset(width,height)
-        scale.Scale=math.min(1,(size.X-16)/width,(size.Y-24)/height)
-        Main.AnchorPoint=Vector2.new(0.5,0.5)
-        Main.Position=UDim2.fromScale(0.5,0.5)
-        local sidebar=S.MobileMode and (width<500 and 88 or 118) or 150
-        Side.Size=UDim2.new(0,sidebar,1,-44)
-        Content.Size=UDim2.new(1,-sidebar,1,-44)
-        Content.Position=UDim2.fromOffset(sidebar,44)
-        if S.MobileMode and width<500 then
-            Top.Size=UDim2.new(1,0,0,84)
-            Side.Size=UDim2.new(0,sidebar,1,-84); Side.Position=UDim2.fromOffset(0,84)
-            Content.Size=UDim2.new(1,-sidebar,1,-84); Content.Position=UDim2.fromOffset(sidebar,84)
-            desktopSwitch.Position=UDim2.fromOffset(12,48)
-            DiscordBtn.Position=UDim2.fromOffset(120,48)
-            Close.Position=UDim2.new(1,-36,0,8)
-            Title.Size=UDim2.new(1,-110,0,40)
-            Ver.Position=UDim2.new(1,-100,0,12)
-        else
-            Top.Size=UDim2.new(1,0,0,44)
-            Side.Position=UDim2.fromOffset(0,44)
-            desktopSwitch.Position=UDim2.new(1,-238,0.5,-14)
-            DiscordBtn.Position=UDim2.new(1,-130,0.5,-14)
-            Close.Position=UDim2.new(1,-36,0.5,-14)
-            Title.Size=UDim2.fromOffset(220,44)
-            Ver.Position=UDim2.new(0,160,0.5,-9)
-        end
-        desktopSwitch.Text=S.MobileMode and "MOBILE" or "DESKTOP"
-        controls.Visible=S.MobileMode and hubUnlocked
-        controls.Size=UDim2.fromOffset(214,144)
-        controls.Position=UDim2.new(1,-224,0,58)
-        if keyScale and keyPage and keyPage.Parent then
-            keyScale.Scale=math.min(1,(size.X-20)/420,(size.Y-24)/372)
-            keyPage.AnchorPoint=Vector2.new(0.5,0.5)
-            keyPage.Position=UDim2.fromScale(0.5,0.5)
-            local mode=keyPage:FindFirstChild("MobileModeSwitch")
-            if mode then mode.Text=S.MobileMode and "Mode: MOBILE  |  Tap for Desktop" or "Mode: DESKTOP  |  Tap for Mobile" end
-        end
-        for _,pg in pairs(pages) do
-            for _,obj in ipairs(pg:GetDescendants()) do
-                if obj:IsA("TextButton") and obj.Name=="ExpandSettings" then
-                    obj.Size=UDim2.fromOffset(S.MobileMode and 28 or 24,S.MobileMode and 28 or 24)
-                end
-            end
-        end
-    end
-    local lastMode,lastUnlocked,lastSize
-    connect(RS.Heartbeat,function()
-        local size=viewport()
-        if S.MobileMode~=lastMode or hubUnlocked~=lastUnlocked or size~=lastSize then
-            lastMode,lastUnlocked,lastSize=S.MobileMode,hubUnlocked,size
-            refreshMobileUI()
-        end
-        aim.Text=S.AimOn and S.Aimbot and not S.Panic and "AIM: ON" or "AIM: OFF"
-        up.Visible=S.Fly; down.Visible=S.Fly
-    end)
-    table.insert(configRefresh,refreshMobileUI)
-    -- Drag from the title region; buttons retain their tap behaviour.
-    do
-        local dragInput,startPoint,startPosition
-        local function begin(input)
-            if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then
-                dragInput=input; startPoint=input.Position; startPosition=Main.Position
-            end
-        end
-        Title.Active=true
-        connect(Title.InputBegan,begin)
-        connect(UIS.InputChanged,function(input)
-            if not dragInput then return end
-            if input==dragInput or (dragInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseMovement) then
-                local delta=input.Position-startPoint
-                Main.Position=UDim2.new(startPosition.X.Scale,startPosition.X.Offset+delta.X,startPosition.Y.Scale,startPosition.Y.Offset+delta.Y)
-            end
-        end)
-        connect(UIS.InputEnded,function(input) if input==dragInput then dragInput=nil end end)
-    end
-    refreshMobileUI()
-end
 
 print("[combat hub] audited build loaded | RShift = menu | End = panic | unimplemented modules are labeled")
 
