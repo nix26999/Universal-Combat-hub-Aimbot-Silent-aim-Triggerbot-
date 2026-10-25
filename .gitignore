@@ -1,9 +1,9 @@
--- COMBAT HUB V1.9 | Automatic selection before initialization.
+-- COMBAT HUB V2.0 | Automatic launcher, embedded standalone implementations.
 local input=game:GetService("UserInputService")
-local mobile=input.TouchEnabled and not input.KeyboardEnabled
-pcall(function() if input.PreferredInput==Enum.PreferredInput.Touch then mobile=true end end)
+local useMobile=input.TouchEnabled and not input.KeyboardEnabled
+pcall(function() if input.PreferredInput==Enum.PreferredInput.Touch then useMobile=true end end)
 local source
-if mobile then source=[========[-- COMBAT HUB V1.9 | MOBILE | rebuilt from uploaded sources
+if useMobile then source=[========[-- COMBAT HUB V2.0 | MOBILE | reconstructed full build
 -- COMBAT HUB V1.5 | Mobile UI revision
 -- COMBAT HUB — all modules
 -- RShift = menu
@@ -37,7 +37,7 @@ do
  fill.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=fill
 end
 function Boot.progress(p,text)
- if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.9\n"..text.."\n"..math.floor(p*100).."%" end
+ if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V2.0\n"..text.."\n"..math.floor(p*100).."%" end
 end
 function Boot.module(name)
  Boot.count+=1; Boot.progress(.15+.70*math.min(Boot.count/Boot.total,1),"Module control: "..name)
@@ -51,10 +51,10 @@ local S = {
 	Aimbot=false, SilentAim=false, AimAssist=false, MagnetAim=false, AimMethod="Camera",
 	AimKey=Enum.UserInputType.MouseButton2, AimKeyMouse=true, AimMode="Hold", AimOn=false,
 	HeadOnly=true, LockPart="Head", StickyAim=true, Humanize=false, Jitter=0.4,
-	Triggerbot=false, AutoShoot=false, Prediction=0.12, Smooth=0.22, AssistStr=0.08, MagnetStr=0.35,
+	Triggerbot=false, AutoShoot=false, Prediction=0, Smooth=0.18, AssistStr=0.08, MagnetStr=0.35,
 	FOV=160, DynFOV=false, DynFOVAdd=40, ShowFOV=true, TeamCheck=true, WallCheck=false, VisibleOnly=false,
 	IgnoreFriends=true, ESPIgnoreFriends=false, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
-	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0.5, FirstBullet=true,
+	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0, FirstBullet=true,
 	-- rage
 	Hitbox=false, HitboxSize=8, KillAura=false, AuraRange=15, MeleeAim=false, DoubleTap=false, ForceHeadClose=false, CloseRange=25, AutoWall=false,
 	-- legit / recoil
@@ -291,9 +291,9 @@ local intentionalLeave, rejoinScheduled = false, false
 local savedPlaceId, savedJobId = game.PlaceId, game.JobId
 local bindingCapture=false
 local function aimPosition()
-    local camera=workspace.CurrentCamera
-    if camera and (S.AimMethod=="Camera" or UIS.MouseBehavior==Enum.MouseBehavior.LockCenter) then return camera.ViewportSize/2 end
-    return UIS:GetMouseLocation()
+ local camera=workspace.CurrentCamera
+ if camera then return camera.ViewportSize/2 end
+ return UIS:GetMouseLocation()
 end
 
 local BV, BG, FOVc, CH, radarDots = nil, nil, nil, {}, {}
@@ -1247,6 +1247,8 @@ local function drop(parent,name,key,options)
 end
 
 local function keybind(parent,name,setFn,defaultText,configKey)
+ do return end -- mobile has no keybind rows
+
 	parent=settingsParent(parent,configKey)
 	local r=Instance.new("Frame",parent); r.Size=UDim2.new(1,0,0,28); r.BackgroundTransparency=1; r.LayoutOrder=nord(parent)
 	local lab=Instance.new("TextLabel",r); lab.Size=UDim2.new(0.5,0,1,0); lab.BackgroundTransparency=1; lab.Text=name; lab.TextColor3=T.txt; lab.Font=Enum.Font.Gotham; lab.TextSize=12; lab.TextXAlignment=Enum.TextXAlignment.Left
@@ -1276,26 +1278,20 @@ local function btn(parent,name,fn,danger)
 end
 
 
--- Dedicated movement updater: isolated from combat and weapon callbacks.
+-- Isolated speed and jump controller.
 do
  local current
  local function update()
   local char=LP.Character
   local hum=char and char:FindFirstChildOfClass("Humanoid")
-  if hum~=current then
-   restoreModule("Speed"); restoreModule("JumpPow"); current=hum
-  end
+  if hum~=current then restoreModule("Speed"); restoreModule("JumpPow"); current=hum end
   if not hum or hum.Health<=0 then return end
   if S.Speed and not S.Panic then
-   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then
-    setProperty("Speed",hum,"WalkSpeed",S.SpeedVal)
-   end
+   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then setProperty("Speed",hum,"WalkSpeed",S.SpeedVal) end
   else restoreModule("Speed") end
   if S.JumpPow and not S.Panic then
-   -- Respect whichever jump mode the experience uses.
    setProperty("JumpPow",hum,"JumpPower",S.JumpVal)
-   local gravity=workspace.Gravity
-   if gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*gravity)) end
+   if workspace.Gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*workspace.Gravity)) end
   else restoreModule("JumpPow") end
  end
  connect(RS.PreSimulation,function()
@@ -1332,18 +1328,18 @@ do local p=pages.aim
 	slider(c2,"Switch Delay","SwitchDelay",0,0.5,2)
 	slider(c2,"Snap Blend","SnapBlend",0,1,2)
 	slider(c2,"Hipfire Smoothness","HipfireSmooth",0.05,1,2)
-	drop(c2,"Aim Method","AimMethod",{"Camera","Mouse"})
+
 	local c3=card(p,"Filters","")
 	tog(c3,"Team Check","TeamCheck")
 	tog(c3,"Wall Check","WallCheck")
 	tog(c3,"Visible Only","VisibleOnly")
 	tog(c3,"Ignore Friends","IgnoreFriends")
 	tog(c3,"Ignore Downed","IgnoreDowned")
-	tog(c3,"ADS Only","ADSOnly")
+
 	tog(c3,"First Bullet Accuracy","FirstBullet")
 	drop(c3,"Priority","Priority",{"Crosshair","Distance","LowestHP"})
 	drop(c3,"Lock Part","LockPart",{"Head","Torso","Random"})
-	drop(c3,"Aim Mode","AimMode",{"Hold","Toggle"})
+
 	tog(c3,"Show FOV","ShowFOV")
 	keybind(c3,"Aim Key",function(k,m) S.AimKey=k; S.AimKeyMouse=m end,"MouseButton2","AimKey")
 end
@@ -1771,7 +1767,7 @@ sideBtns.aim.BackgroundTransparency=0; sideBtns.aim.L.TextColor3=T.txt; pages.ai
 
 
 Boot.progress(.90,"Connecting runtime"); RS.Heartbeat:Wait()
--- Mobile-only responsive layout and menu access.
+-- V1.5: touch UI, responsive layout, and screen switches.
 do
     local mobile=true
     local mainScale=Instance.new("UIScale",Main)
@@ -2501,35 +2497,36 @@ local function getTarget()
     CT=best
     return best
 end
+
+local aimTracking={part=nil,position=nil}
+local function resetAimTracking() aimTracking.part=nil; aimTracking.position=nil end
 local function aimOn()
-    if S.Panic or not S.Aimbot or bindingCapture or UIS:GetFocusedTextBox() or pointerOverMenu() then return false end
-    if S.ADSOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
-    if S.AimMode=="Toggle" then return S.AimOn end
-    if S.AimKeyMouse then return UIS:IsMouseButtonPressed(S.AimKey) end
-    return UIS:IsKeyDown(S.AimKey)
+ if not running or S.Panic or not S.Aimbot or UIS:GetFocusedTextBox() then return false end
+ if Boot.mobile then return true end
+ if bindingCapture or pointerOverMenu() then return false end
+ if S.ADSOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
+ if S.AimMode=="Toggle" then return S.AimOn==true end
+ local key=S.AimKey
+ if typeof(key)~="EnumItem" then return false end
+ if key.EnumType==Enum.UserInputType then return UIS:IsMouseButtonPressed(key) end
+ if key.EnumType==Enum.KeyCode then return UIS:IsKeyDown(key) end
+ return false
 end
 local function moveTo(part,str,dt)
-    local camera=workspace.CurrentCamera
-    if not camera or not part or not part.Parent then return end
-    local pos=part.Position+part.AssemblyLinearVelocity*S.Prediction
-    if S.Humanize then
-        local t=os.clock()
-        pos+=Vector3.new(math.noise(t*3,0),math.noise(0,t*3),math.noise(t*3,t*3))*S.Jitter
-    end
-    local point,onScreen=camera:WorldToViewportPoint(pos)
-    if not onScreen or point.Z<=0 then return end
-    local origin=aimPosition()
-    local distance=(Vector2.new(point.X,point.Y)-origin).Magnitude
-    local rate=math.clamp(str,0,1)
-    if S.MagnetAim and distance<S.FOV*0.35 then rate=math.max(rate,S.MagnetStr) end
-    local alpha=1-(1-rate)^(math.clamp(dt or 1/60,0,0.1)*60)
-    if S.AimMethod=="Mouse" and type(mousemoverel)=="function" then
-        mousemoverel((point.X-origin.X)*alpha,(point.Y-origin.Y)*alpha)
-    else
-        if (pos-camera.CFrame.Position).Magnitude>0.001 then
-            camera.CFrame=camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position,pos),alpha)
-        end
-    end
+ local camera=workspace.CurrentCamera
+ if not camera or not part or not part.Parent then resetAimTracking(); return end
+ dt=math.clamp(dt or 1/60,0,0.1)
+ local lead=part.AssemblyLinearVelocity*math.clamp(S.Prediction or 0,0,0.15)
+ if lead.Magnitude>8 then lead=lead.Unit*8 end
+ local desired=part.Position+lead
+ if aimTracking.part~=part or not aimTracking.position then
+  aimTracking.part=part; aimTracking.position=desired
+ else aimTracking.position=aimTracking.position:Lerp(desired,1-math.exp(-24*dt)) end
+ local pos=camera.CFrame.Position
+ if (aimTracking.position-pos).Magnitude<0.001 then return end
+ local rate=math.clamp(str or .18,.01,1)
+ local alpha=1-(1-rate)^(dt*60)
+ camera.CFrame=camera.CFrame:Lerp(CFrame.lookAt(pos,aimTracking.position,Vector3.yAxis),alpha)
 end
 
 local function click()
@@ -2723,23 +2720,17 @@ end)
 
 local aimRenderName="CombatHubAim_"..HS:GenerateGUID(false)
 RS:BindToRenderStep(aimRenderName,Enum.RenderPriority.Camera.Value+1,function(dt)
-    if not Boot.ready or not running or S.Panic or not Gui.Parent or freecamConn then CT=nil; return end
-    local active=aimOn()
-    local assist=S.AimAssist and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu()
-    if not active and not assist then if S.SilentAim then getTarget() else CT=nil end; return end
-    local target=getTarget()
-    if not target then return end
-    local strength=active and S.Smooth or S.AssistStr
-    if active and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then strength=S.HipfireSmooth end
-    if active then
-        local camera=workspace.CurrentCamera
-        if not camera then return end
-        local point=camera:WorldToViewportPoint(target.Position)
-        local distance=(Vector2.new(point.X,point.Y)-aimPosition()).Magnitude
-        local close=math.clamp(1-distance/math.max(S.FOV,1),0,1)
-        strength=strength+(1-strength)*S.SnapBlend*close
-    end
-    moveTo(target,strength,dt)
+ if not Boot.ready or not running or S.Panic or not Gui.Parent or freecamConn then CT=nil; resetAimTracking(); return end
+ local active=aimOn()
+ local assist=S.AimAssist and not UIS:GetFocusedTextBox() and (Boot.mobile or (not bindingCapture and not pointerOverMenu()))
+ if not active and not assist then
+  resetAimTracking()
+  if S.SilentAim then getTarget() else CT=nil end
+  return
+ end
+ local target=getTarget()
+ if not target then resetAimTracking(); return end
+ moveTo(target,active and S.Smooth or S.AssistStr,dt)
 end)
 connect(Gui.Destroying,function() RS:UnbindFromRenderStep(aimRenderName); S.Panic=true; CT=nil; HK=false; S.AimOn=false end)
 connect(UIS.WindowFocusReleased,function() HK=false; S.AimOn=false; if cancelCapture then cancelCapture() end end)
@@ -2984,7 +2975,7 @@ pcall(function() local vu=game:GetService("VirtualUser"); connect(LP.Idled,funct
 
 local function isAimKey(i) if S.AimKeyMouse then return i.UserInputType==S.AimKey end return i.KeyCode==S.AimKey end
 connect(UIS.InputBegan,function(i,g)
-    if isAimKey(i) and S.Aimbot and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu() then
+    if not Boot.mobile and isAimKey(i) and S.Aimbot and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu() then
         if S.AimMode=="Toggle" then S.AimOn=not S.AimOn else HK=true end
     end
 	if g or bindingCapture or UIS:GetFocusedTextBox() then return end
@@ -3073,7 +3064,7 @@ Boot.progress(1,"Ready"); RS.Heartbeat:Wait()
 Boot.ready=true
 if Boot.gui then Boot.gui:Destroy(); Boot.gui=nil end
 task.defer(runAutoExec)]========]
-else source=[========[-- COMBAT HUB V1.9 | PC | rebuilt from uploaded sources
+else source=[========[-- COMBAT HUB V2.0 | PC | reconstructed full build
 -- COMBAT HUB — all modules
 -- RShift = menu
 
@@ -3106,7 +3097,7 @@ do
  fill.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=fill
 end
 function Boot.progress(p,text)
- if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.9\n"..text.."\n"..math.floor(p*100).."%" end
+ if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V2.0\n"..text.."\n"..math.floor(p*100).."%" end
 end
 function Boot.module(name)
  Boot.count+=1; Boot.progress(.15+.70*math.min(Boot.count/Boot.total,1),"Module control: "..name)
@@ -3120,10 +3111,10 @@ local S = {
 	Aimbot=false, SilentAim=false, AimAssist=false, MagnetAim=false, AimMethod="Camera",
 	AimKey=Enum.UserInputType.MouseButton2, AimKeyMouse=true, AimMode="Hold", AimOn=false,
 	HeadOnly=true, LockPart="Head", StickyAim=true, Humanize=false, Jitter=0.4,
-	Triggerbot=false, AutoShoot=false, Prediction=0.12, Smooth=0.22, AssistStr=0.08, MagnetStr=0.35,
+	Triggerbot=false, AutoShoot=false, Prediction=0, Smooth=0.18, AssistStr=0.08, MagnetStr=0.35,
 	FOV=160, DynFOV=false, DynFOVAdd=40, ShowFOV=true, TeamCheck=true, WallCheck=false, VisibleOnly=false,
 	IgnoreFriends=true, ESPIgnoreFriends=false, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
-	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0.5, FirstBullet=true,
+	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0, FirstBullet=true,
 	-- rage
 	Hitbox=false, HitboxSize=8, KillAura=false, AuraRange=15, MeleeAim=false, DoubleTap=false, ForceHeadClose=false, CloseRange=25, AutoWall=false,
 	-- legit / recoil
@@ -3360,9 +3351,9 @@ local intentionalLeave, rejoinScheduled = false, false
 local savedPlaceId, savedJobId = game.PlaceId, game.JobId
 local bindingCapture=false
 local function aimPosition()
-    local camera=workspace.CurrentCamera
-    if camera and (S.AimMethod=="Camera" or UIS.MouseBehavior==Enum.MouseBehavior.LockCenter) then return camera.ViewportSize/2 end
-    return UIS:GetMouseLocation()
+ local camera=workspace.CurrentCamera
+ if camera then return camera.ViewportSize/2 end
+ return UIS:GetMouseLocation()
 end
 
 local BV, BG, FOVc, CH, radarDots = nil, nil, nil, {}, {}
@@ -4005,7 +3996,7 @@ end
 local Top=Instance.new("Frame",Main); Top.Size=UDim2.new(1,0,0,44); Top.BackgroundColor3=T.panel; Top.BorderSizePixel=0; corner(Top,12)
 local tf=Instance.new("Frame",Top); tf.Size=UDim2.new(1,0,0,14); tf.Position=UDim2.new(0,0,1,-14); tf.BackgroundColor3=T.panel; tf.BorderSizePixel=0
 local Title=Instance.new("TextLabel",Top); Title.Size=UDim2.new(0,220,1,0); Title.Position=UDim2.new(0,16,0,0); Title.BackgroundTransparency=1; Title.Text="COMBAT HUB"; Title.TextColor3=T.txt; Title.Font=Enum.Font.GothamBold; Title.TextSize=15; Title.TextXAlignment=Enum.TextXAlignment.Left
-local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="V1.9"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
+local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="V2.0"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
 
 do
  local badge=Instance.new("Frame",Top); badge.Name="DeviceIcon"; badge.Size=UDim2.fromOffset(22,22); badge.Position=UDim2.new(0,216,.5,-11)
@@ -4332,26 +4323,20 @@ local function btn(parent,name,fn,danger)
 end
 
 
--- Dedicated movement updater: isolated from combat and weapon callbacks.
+-- Isolated speed and jump controller.
 do
  local current
  local function update()
   local char=LP.Character
   local hum=char and char:FindFirstChildOfClass("Humanoid")
-  if hum~=current then
-   restoreModule("Speed"); restoreModule("JumpPow"); current=hum
-  end
+  if hum~=current then restoreModule("Speed"); restoreModule("JumpPow"); current=hum end
   if not hum or hum.Health<=0 then return end
   if S.Speed and not S.Panic then
-   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then
-    setProperty("Speed",hum,"WalkSpeed",S.SpeedVal)
-   end
+   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then setProperty("Speed",hum,"WalkSpeed",S.SpeedVal) end
   else restoreModule("Speed") end
   if S.JumpPow and not S.Panic then
-   -- Respect whichever jump mode the experience uses.
    setProperty("JumpPow",hum,"JumpPower",S.JumpVal)
-   local gravity=workspace.Gravity
-   if gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*gravity)) end
+   if workspace.Gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*workspace.Gravity)) end
   else restoreModule("JumpPow") end
  end
  connect(RS.PreSimulation,function()
@@ -5498,35 +5483,36 @@ local function getTarget()
     CT=best
     return best
 end
+
+local aimTracking={part=nil,position=nil}
+local function resetAimTracking() aimTracking.part=nil; aimTracking.position=nil end
 local function aimOn()
-    if S.Panic or not S.Aimbot or bindingCapture or UIS:GetFocusedTextBox() or pointerOverMenu() then return false end
-    if S.ADSOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
-    if S.AimMode=="Toggle" then return S.AimOn end
-    if S.AimKeyMouse then return UIS:IsMouseButtonPressed(S.AimKey) end
-    return UIS:IsKeyDown(S.AimKey)
+ if not running or S.Panic or not S.Aimbot or UIS:GetFocusedTextBox() then return false end
+ if Boot.mobile then return true end
+ if bindingCapture or pointerOverMenu() then return false end
+ if S.ADSOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
+ if S.AimMode=="Toggle" then return S.AimOn==true end
+ local key=S.AimKey
+ if typeof(key)~="EnumItem" then return false end
+ if key.EnumType==Enum.UserInputType then return UIS:IsMouseButtonPressed(key) end
+ if key.EnumType==Enum.KeyCode then return UIS:IsKeyDown(key) end
+ return false
 end
 local function moveTo(part,str,dt)
-    local camera=workspace.CurrentCamera
-    if not camera or not part or not part.Parent then return end
-    local pos=part.Position+part.AssemblyLinearVelocity*S.Prediction
-    if S.Humanize then
-        local t=os.clock()
-        pos+=Vector3.new(math.noise(t*3,0),math.noise(0,t*3),math.noise(t*3,t*3))*S.Jitter
-    end
-    local point,onScreen=camera:WorldToViewportPoint(pos)
-    if not onScreen or point.Z<=0 then return end
-    local origin=aimPosition()
-    local distance=(Vector2.new(point.X,point.Y)-origin).Magnitude
-    local rate=math.clamp(str,0,1)
-    if S.MagnetAim and distance<S.FOV*0.35 then rate=math.max(rate,S.MagnetStr) end
-    local alpha=1-(1-rate)^(math.clamp(dt or 1/60,0,0.1)*60)
-    if S.AimMethod=="Mouse" and type(mousemoverel)=="function" then
-        mousemoverel((point.X-origin.X)*alpha,(point.Y-origin.Y)*alpha)
-    else
-        if (pos-camera.CFrame.Position).Magnitude>0.001 then
-            camera.CFrame=camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position,pos),alpha)
-        end
-    end
+ local camera=workspace.CurrentCamera
+ if not camera or not part or not part.Parent then resetAimTracking(); return end
+ dt=math.clamp(dt or 1/60,0,0.1)
+ local lead=part.AssemblyLinearVelocity*math.clamp(S.Prediction or 0,0,0.15)
+ if lead.Magnitude>8 then lead=lead.Unit*8 end
+ local desired=part.Position+lead
+ if aimTracking.part~=part or not aimTracking.position then
+  aimTracking.part=part; aimTracking.position=desired
+ else aimTracking.position=aimTracking.position:Lerp(desired,1-math.exp(-24*dt)) end
+ local pos=camera.CFrame.Position
+ if (aimTracking.position-pos).Magnitude<0.001 then return end
+ local rate=math.clamp(str or .18,.01,1)
+ local alpha=1-(1-rate)^(dt*60)
+ camera.CFrame=camera.CFrame:Lerp(CFrame.lookAt(pos,aimTracking.position,Vector3.yAxis),alpha)
 end
 
 local function click()
@@ -5720,23 +5706,17 @@ end)
 
 local aimRenderName="CombatHubAim_"..HS:GenerateGUID(false)
 RS:BindToRenderStep(aimRenderName,Enum.RenderPriority.Camera.Value+1,function(dt)
-    if not Boot.ready or not running or S.Panic or not Gui.Parent or freecamConn then CT=nil; return end
-    local active=aimOn()
-    local assist=S.AimAssist and not bindingCapture and not UIS:GetFocusedTextBox() and not pointerOverMenu()
-    if not active and not assist then if S.SilentAim then getTarget() else CT=nil end; return end
-    local target=getTarget()
-    if not target then return end
-    local strength=active and S.Smooth or S.AssistStr
-    if active and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then strength=S.HipfireSmooth end
-    if active then
-        local camera=workspace.CurrentCamera
-        if not camera then return end
-        local point=camera:WorldToViewportPoint(target.Position)
-        local distance=(Vector2.new(point.X,point.Y)-aimPosition()).Magnitude
-        local close=math.clamp(1-distance/math.max(S.FOV,1),0,1)
-        strength=strength+(1-strength)*S.SnapBlend*close
-    end
-    moveTo(target,strength,dt)
+ if not Boot.ready or not running or S.Panic or not Gui.Parent or freecamConn then CT=nil; resetAimTracking(); return end
+ local active=aimOn()
+ local assist=S.AimAssist and not UIS:GetFocusedTextBox() and (Boot.mobile or (not bindingCapture and not pointerOverMenu()))
+ if not active and not assist then
+  resetAimTracking()
+  if S.SilentAim then getTarget() else CT=nil end
+  return
+ end
+ local target=getTarget()
+ if not target then resetAimTracking(); return end
+ moveTo(target,active and S.Smooth or S.AssistStr,dt)
 end)
 connect(Gui.Destroying,function() RS:UnbindFromRenderStep(aimRenderName); S.Panic=true; CT=nil; HK=false; S.AimOn=false end)
 connect(UIS.WindowFocusReleased,function() HK=false; S.AimOn=false; if cancelCapture then cancelCapture() end end)
@@ -6071,14 +6051,12 @@ Boot.ready=true
 if Boot.gui then Boot.gui:Destroy(); Boot.gui=nil end
 task.defer(runAutoExec)]========] end
 assert(type(loadstring)=="function","Combat Hub AUTO requires loadstring")
-local run,compileError=loadstring(source,mobile and "CombatHubMobileV19" or "CombatHubPCV19")
+local run,compileError=loadstring(source,useMobile and "CombatHubV20Mobile" or "CombatHubV20PC")
 assert(run,compileError)
 local ok,err=xpcall(run,function(e) return tostring(e).."\n"..debug.traceback() end)
 if not ok then
- warn("[Combat Hub V1.9] "..tostring(err))
- pcall(function()
-  local g=game:GetService("CoreGui"):FindFirstChild("CombatHubLoading"); if g then g:Destroy() end
- end)
+ warn("[Combat Hub V2.0] "..tostring(err))
+ pcall(function() local g=game:GetService("CoreGui"):FindFirstChild("CombatHubLoading"); if g then g:Destroy() end end)
  pcall(function()
   local p=game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
   local g=p and p:FindFirstChild("CombatHubLoading"); if g then g:Destroy() end
