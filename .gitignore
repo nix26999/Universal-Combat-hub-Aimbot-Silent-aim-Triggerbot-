@@ -1,12 +1,9 @@
--- COMBAT HUB V1.8 | Automatic launcher; no downloads or file storage required.
-local UIS=game:GetService("UserInputService")
-local mobile=UIS.TouchEnabled and not UIS.KeyboardEnabled
-pcall(function()
- if UIS.PreferredInput==Enum.PreferredInput.Touch then mobile=true end
-end)
+-- COMBAT HUB V1.9 | Automatic selection before initialization.
+local input=game:GetService("UserInputService")
+local mobile=input.TouchEnabled and not input.KeyboardEnabled
+pcall(function() if input.PreferredInput==Enum.PreferredInput.Touch then mobile=true end end)
 local source
-if mobile then
- source=[========[-- COMBAT HUB V1.8 | MOBILE implementation
+if mobile then source=[========[-- COMBAT HUB V1.9 | MOBILE | rebuilt from uploaded sources
 -- COMBAT HUB V1.5 | Mobile UI revision
 -- COMBAT HUB — all modules
 -- RShift = menu
@@ -24,32 +21,29 @@ local StarterGui = game:GetService("StarterGui")
 local Cam = workspace.CurrentCamera
 local LP = Players.LocalPlayer
 local Mouse = LP:GetMouse()
-local alive,pointerOverMenu
 
-local Boot={ready=false,count=0,total=101,mobile=true}
+local alive,pointerOverMenu
+local Boot={ready=false,count=0,total=102,mobile=true}
 do
- local g=Instance.new("ScreenGui"); g.Name="CombatHubLoadingV18"; g.ResetOnSpawn=false; g.DisplayOrder=2000; g.IgnoreGuiInset=true
+ local g=Instance.new("ScreenGui"); g.Name="CombatHubLoading"; g.ResetOnSpawn=false; g.DisplayOrder=2000; g.IgnoreGuiInset=true
  pcall(function() g.Parent=game:GetService("CoreGui") end)
  if not g.Parent then g.Parent=LP:WaitForChild("PlayerGui") end
  Boot.gui=g
  local bg=Instance.new("Frame",g); bg.Size=UDim2.fromScale(1,1); bg.BackgroundColor3=Color3.fromRGB(12,12,16); bg.Active=true
- local t=Instance.new("TextLabel",bg); t.Size=UDim2.new(.9,0,0,100); t.Position=UDim2.fromScale(.05,.34)
- t.BackgroundTransparency=1; t.TextWrapped=true; t.TextColor3=Color3.fromRGB(235,235,245); t.Font=Enum.Font.GothamBold; t.TextSize=18; Boot.label=t
- local track=Instance.new("Frame",bg); track.Size=UDim2.new(.8,0,0,8); track.Position=UDim2.fromScale(.1,.6); track.BackgroundColor3=Color3.fromRGB(40,40,52)
- local f=Instance.new("Frame",track); f.BorderSizePixel=0; f.Size=UDim2.fromScale(0,1); f.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=f
+ local label=Instance.new("TextLabel",bg); label.BackgroundTransparency=1; label.Size=UDim2.new(.9,0,0,120); label.Position=UDim2.fromScale(.05,.3)
+ label.TextColor3=Color3.fromRGB(235,235,245); label.Font=Enum.Font.GothamBold; label.TextSize=18; label.TextWrapped=true; Boot.label=label
+ local track=Instance.new("Frame",bg); track.Position=UDim2.fromScale(.1,.6); track.Size=UDim2.new(.8,0,0,8); track.BackgroundColor3=Color3.fromRGB(40,40,52)
+ local fill=Instance.new("Frame",track); fill.Size=UDim2.fromScale(0,1); fill.BorderSizePixel=0
+ fill.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=fill
 end
-function Boot.show(p,text)
- if Boot.gui and Boot.gui.Parent then
- Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.8\n"..text.."\n"..math.floor(p*100).."%"
- end
+function Boot.progress(p,text)
+ if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.9\n"..text.."\n"..math.floor(p*100).."%" end
 end
 function Boot.module(name)
- Boot.count+=1
- Boot.show(.15+.70*math.min(Boot.count/Boot.total,1),"Loaded module control: "..name)
+ Boot.count+=1; Boot.progress(.15+.70*math.min(Boot.count/Boot.total,1),"Module control: "..name)
  if Boot.mobile then RS.Heartbeat:Wait() end
 end
-Boot.show(.02,"Preparing mobile implementation")
-RS.Heartbeat:Wait()
+Boot.progress(.02,"Preparing interface"); RS.Heartbeat:Wait()
 
 
 local S = {
@@ -59,7 +53,7 @@ local S = {
 	HeadOnly=true, LockPart="Head", StickyAim=true, Humanize=false, Jitter=0.4,
 	Triggerbot=false, AutoShoot=false, Prediction=0.12, Smooth=0.22, AssistStr=0.08, MagnetStr=0.35,
 	FOV=160, DynFOV=false, DynFOVAdd=40, ShowFOV=true, TeamCheck=true, WallCheck=false, VisibleOnly=false,
-	IgnoreFriends=true, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
+	IgnoreFriends=true, ESPIgnoreFriends=false, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
 	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0.5, FirstBullet=true,
 	-- rage
 	Hitbox=false, HitboxSize=8, KillAura=false, AuraRange=15, MeleeAim=false, DoubleTap=false, ForceHeadClose=false, CloseRange=25, AutoWall=false,
@@ -596,7 +590,7 @@ local function getNearestEnemyRoot()
 	if me then origin = me.Position end
 	local best, bestDist = nil, math.huge
 	for _,p in ipairs(Players:GetPlayers()) do
-		if alive(p) and p.Character then
+		if alive(p,"aim") and p.Character then
 			local root = p.Character:FindFirstChild("HumanoidRootPart")
 			if root then
 				local d = (root.Position - origin).Magnitude
@@ -944,15 +938,12 @@ local tf=Instance.new("Frame",Top); tf.Size=UDim2.new(1,0,0,14); tf.Position=UDi
 local Title=Instance.new("TextLabel",Top); Title.Size=UDim2.new(0,220,1,0); Title.Position=UDim2.new(0,16,0,0); Title.BackgroundTransparency=1; Title.Text="COMBAT HUB"; Title.TextColor3=T.txt; Title.Font=Enum.Font.GothamBold; Title.TextSize=15; Title.TextXAlignment=Enum.TextXAlignment.Left
 local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="V1.5"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
 
--- Device badge in the top tab bar.
 do
- local badge=Instance.new("Frame",Top); badge.Name="DeviceIcon"; badge.Size=UDim2.fromOffset(22,22)
- badge.Position=UDim2.new(0,216,.5,-11); badge.BackgroundColor3=Color3.fromRGB(255,210,50); corner(badge,4)
+ local badge=Instance.new("Frame",Top); badge.Name="DeviceIcon"; badge.Size=UDim2.fromOffset(22,22); badge.Position=UDim2.new(0,216,.5,-11)
+ badge.BackgroundColor3=Color3.fromRGB(255,210,50); corner(badge,4)
  local body=Instance.new("Frame",badge); body.BorderSizePixel=0; body.BackgroundColor3=Color3.fromRGB(15,18,25)
  body.Size=UDim2.fromOffset(10,17); body.Position=UDim2.fromOffset(6,2)
- local screen=Instance.new("Frame",body); screen.BorderSizePixel=0; screen.BackgroundColor3=Color3.fromRGB(255,210,50)
- screen.Size=UDim2.new(1,-4,1,-5); screen.Position=UDim2.fromOffset(2,2)
- badge:SetAttribute("Device","Mobile")
+ local screen=Instance.new("Frame",body); screen.BorderSizePixel=0; screen.Size=UDim2.new(1,-4,1,-5); screen.Position=UDim2.fromOffset(2,2); screen.BackgroundColor3=Color3.fromRGB(255,210,50)
 end
 
 local DISCORD_URL="https://discord.gg/RrQQh6B4nP"
@@ -1284,8 +1275,38 @@ local function btn(parent,name,fn,danger)
 	bindTip(r, name)
 end
 
-Boot.show(.15,"Building modules")
-RS.Heartbeat:Wait()
+
+-- Dedicated movement updater: isolated from combat and weapon callbacks.
+do
+ local current
+ local function update()
+  local char=LP.Character
+  local hum=char and char:FindFirstChildOfClass("Humanoid")
+  if hum~=current then
+   restoreModule("Speed"); restoreModule("JumpPow"); current=hum
+  end
+  if not hum or hum.Health<=0 then return end
+  if S.Speed and not S.Panic then
+   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then
+    setProperty("Speed",hum,"WalkSpeed",S.SpeedVal)
+   end
+  else restoreModule("Speed") end
+  if S.JumpPow and not S.Panic then
+   -- Respect whichever jump mode the experience uses.
+   setProperty("JumpPow",hum,"JumpPower",S.JumpVal)
+   local gravity=workspace.Gravity
+   if gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*gravity)) end
+  else restoreModule("JumpPow") end
+ end
+ connect(RS.PreSimulation,function()
+  local ok,err=pcall(update)
+  if not ok then warn("[Combat Hub movement] "..tostring(err)) end
+ end)
+ configCallbacks.Speed=function() update() end
+ configCallbacks.JumpPow=function() update() end
+end
+
+Boot.progress(.15,"Building modules"); RS.Heartbeat:Wait()
 -- AIM
 do local p=pages.aim
 	local c=card(p,"Targeting","Main aim modules")
@@ -1385,6 +1406,7 @@ end
 -- VISUALS
 do local p=pages.visuals
 	local c=card(p,"ESP","")
+ tog(c,"Ignore Friends (ESP / Radar)","ESPIgnoreFriends")
 	tog(c,"Chams","Chams")
 	slider(c,"Chams Fill","ChamsFill",0,1,2)
 	slider(c,"Chams Outline","ChamsOutline",0,1,2)
@@ -1713,7 +1735,7 @@ end
 		aeProfile.Text = autoExecProfile
 		aeProfile.LayoutOrder = nord(ae)
 		corner(aeProfile, 6)
- bindTip(aeProfile, "Profile name to auto-load")
+ bindTip(aeProfile,"Profile name to auto-load")
 
 		local aeStatus = Instance.new("TextLabel", ae)
 		aeStatus.Size = UDim2.new(1, 0, 0, 28)
@@ -1748,37 +1770,65 @@ end
 sideBtns.aim.BackgroundTransparency=0; sideBtns.aim.L.TextColor3=T.txt; pages.aim.Visible=true; cur="aim"; PageTitle.Text="Aim"; PageDesc.Text=cats[1].d
 
 
-Boot.show(.90,"Preparing runtime")
-RS.Heartbeat:Wait()
-
--- Mobile-only layout and menu access; no device-mode switch.
+Boot.progress(.90,"Connecting runtime"); RS.Heartbeat:Wait()
+-- Mobile-only responsive layout and menu access.
 do
- local scale=Instance.new("UIScale",Main)
- local ks=keyPage and Instance.new("UIScale",keyPage)
- local function fit()
-  local c=workspace.CurrentCamera; if not c then return end
-  local v=c.ViewportSize
-  Main.AnchorPoint=Vector2.new(.5,.5); Main.Position=UDim2.fromScale(.5,.5)
-  scale.Scale=math.min(1,(v.X-24)/760,(v.Y-48)/540)
-  if keyPage and keyPage.Parent then
-   keyPage.AnchorPoint=Vector2.new(.5,.5); keyPage.Position=UDim2.fromScale(.5,.5)
-   ks.Scale=math.min(1,(v.X-24)/420,(v.Y-48)/320)
-  end
- end
- local vc
- local function watch()
-  if vc then vc:Disconnect() end
-  if workspace.CurrentCamera then vc=connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"),fit) end
-  fit()
- end
- connect(workspace:GetPropertyChangedSignal("CurrentCamera"),watch); watch()
- local b=Instance.new("TextButton",Gui); b.Name="MenuToggle"; b.Size=UDim2.fromOffset(100,44)
- b.Position=UDim2.new(1,-112,0,60); b.Text="MENU"; b.BackgroundColor3=T.acc; b.TextColor3=T.txt; b.ZIndex=150; corner(b,8)
- connect(b.Activated,function()
-  if hubUnlocked then Main.Visible=not Main.Visible
-  elseif keyPage and keyPage.Parent then keyPage.Visible=not keyPage.Visible end
- end)
+    local mobile=true
+    local mainScale=Instance.new("UIScale",Main)
+    local keyScale=keyPage and Instance.new("UIScale",keyPage)
+    local launcher=Instance.new("TextButton",Gui)
+    launcher.Name="MenuSwitch"; launcher.Size=UDim2.fromOffset(112,44)
+    launcher.Position=UDim2.new(1,-124,0,60); launcher.BackgroundColor3=T.acc
+    launcher.Text="SHOW / HIDE"; launcher.TextColor3=T.txt
+    launcher.Font=Enum.Font.GothamBold; launcher.TextSize=12; launcher.ZIndex=150
+    corner(launcher,10)
+    connect(launcher.Activated,function()
+        if hubUnlocked then Main.Visible=not Main.Visible
+        elseif keyPage and keyPage.Parent then keyPage.Visible=not keyPage.Visible end
+    end)
+    local function resize()
+        local camera=workspace.CurrentCamera
+        if not camera then return end
+        local v=camera.ViewportSize
+        local w,h=mobile and 640 or 760,mobile and 500 or 540
+        Main.Size=UDim2.fromOffset(w,h)
+        Main.AnchorPoint=Vector2.new(0.5,0.5); Main.Position=UDim2.fromScale(0.5,0.5)
+        mainScale.Scale=math.min(1,math.max(0.1,(v.X-24)/w),math.max(0.1,(v.Y-48)/h))
+        if keyPage and keyPage.Parent then
+            keyPage.AnchorPoint=Vector2.new(0.5,0.5); keyPage.Position=UDim2.fromScale(0.5,0.5)
+            keyScale.Scale=math.min(1,math.max(0.1,(v.X-24)/420),math.max(0.1,(v.Y-48)/360))
+        end
+    end
+    local function drag(frame,handle)
+        frame.Draggable=false; handle.Active=true
+        local active,start,origin
+        connect(handle.InputBegan,function(i)
+            if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+                active=i; start=i.Position; origin=frame.Position
+            end
+        end)
+        connect(UIS.InputChanged,function(i)
+            if active and (i==active or (active.UserInputType==Enum.UserInputType.MouseButton1 and i.UserInputType==Enum.UserInputType.MouseMovement)) then
+                local d=i.Position-start
+                frame.Position=UDim2.new(origin.X.Scale,origin.X.Offset+d.X,origin.Y.Scale,origin.Y.Offset+d.Y)
+            end
+        end)
+        connect(UIS.InputEnded,function(i) if i==active then active=nil end end)
+    end
+    drag(Main,Title)
+    if keyPage then drag(keyPage,keyPage) end
+    local watchedCamera
+    local viewportConnection
+    local function watchCamera()
+        if viewportConnection then viewportConnection:Disconnect() end
+        watchedCamera=workspace.CurrentCamera
+        if watchedCamera then viewportConnection=connect(watchedCamera:GetPropertyChangedSignal("ViewportSize"),resize) end
+        resize()
+    end
+    connect(workspace:GetPropertyChangedSignal("CurrentCamera"),watchCamera)
+    watchCamera()
 end
+
 
 -- watermark
 local WM=Instance.new("TextLabel",Gui); WM.Size=UDim2.new(0,260,0,20); WM.Position=UDim2.new(0,10,0,10); WM.BackgroundTransparency=0.3; WM.BackgroundColor3=T.bg; WM.TextColor3=T.txt; WM.Font=Enum.Font.GothamBold; WM.TextSize=11; WM.TextXAlignment=Enum.TextXAlignment.Left; WM.Text="  COMBAT HUB | loading"; corner(WM,4)
@@ -2330,14 +2380,14 @@ local _oldDispose = dispose
 -- LOGIC
 --------------------------------------------------------------------
 local friendshipCache={}
-alive=function(p)
+alive=function(p,context)
     if not p or p==LP then return false end
     local char=p.Character
     local hum=char and char:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health<=0 then return false end
     if S.IgnoreDowned and hum.Health<=5 then return false end
     if S.TeamCheck and not p.Neutral and not LP.Neutral and p.Team and p.Team==LP.Team then return false end
-    if S.IgnoreFriends then
+    if (context=="aim" and S.IgnoreFriends) or (context=="esp" and S.ESPIgnoreFriends) then
         local cached=friendshipCache[p.UserId]
         if cached==nil then
             friendshipCache[p.UserId]="pending"
@@ -2428,7 +2478,7 @@ local function getTarget()
     local current
     if CT and CT.Parent then
         local player=Players:GetPlayerFromCharacter(CT.Parent)
-        if player and alive(player) then
+        if player and alive(player,"aim") then
             local part=aimPart(player.Character)
             if targetMetrics(part,camera,origin,root,fov) then current=part end
         end
@@ -2436,7 +2486,7 @@ local function getTarget()
     if current and (S.StickyAim or os.clock()-lastSwitch<S.SwitchDelay) then CT=current; return current end
     local best,bestScore=nil,math.huge
     for _,player in ipairs(Players:GetPlayers()) do
-        if alive(player) then
+        if alive(player,"aim") then
             local part=aimPart(player.Character)
             local cross=targetMetrics(part,camera,origin,root,fov)
             if cross then
@@ -2657,7 +2707,7 @@ connect(RS.RenderStepped,function(dt)
     if S.Radar and radarRoot then
         for _,player in ipairs(Players:GetPlayers()) do
             local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-            if root and alive(player) then
+            if root and alive(player,"esp") then
                 seen[player]=true
                 local dot=radarDots[player]
                 if not dot then dot=Instance.new("Frame",RadarF); dot.Size=UDim2.fromOffset(4,4); dot.BorderSizePixel=0; corner(dot,2); radarDots[player]=dot end
@@ -2720,7 +2770,7 @@ connect(RS.Heartbeat,function()
                         if model:IsA("Model") then player=Players:GetPlayerFromCharacter(model); if player then break end end
                         model=model.Parent
                     end
-                    if player and alive(player) then
+                    if player and alive(player,"aim") then
                         local sp,on = camera:WorldToViewportPoint(hit.Position)
                         local dist2d = on and (Vector2.new(sp.X,sp.Y)-aimPoint).Magnitude or math.huge
                         if dist2d <= (S.TriggerRange or 22) and wallOk(hit.Instance) then fire=true end
@@ -2758,8 +2808,8 @@ connect(RS.Heartbeat,function()
 
 	local char=LP.Character; if not char then return end
 	local hum=char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-	if S.Speed then setProperty("Speed",hum,"WalkSpeed",S.SpeedVal) end
-	if S.JumpPow then setProperty("JumpPow",hum,"UseJumpPower",true); setProperty("JumpPow",hum,"JumpPower",S.JumpVal) end
+	
+	
 	if S.Bhop and hum.FloorMaterial~=Enum.Material.Air and UIS:IsKeyDown(Enum.KeyCode.Space) then hum.Jump=true end
 	if S.EdgeJump and hum.FloorMaterial~=Enum.Material.Air then
 		local root=char:FindFirstChild("HumanoidRootPart")
@@ -2861,7 +2911,7 @@ local espConnection=connect(RS.RenderStepped,function()
             local localRoot=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
             local checkPart=char and (char:FindFirstChild("Head") or root)
             local withinRange=root and (not localRoot or (root.Position-localRoot.Position).Magnitude<=(S.ESPMaxDist or S.MaxDist))
-            if not alive(p) or not root or not withinRange then clearESP(p)
+            if not alive(p,"esp") or not root or not withinRange then clearESP(p)
             else
                 local pack=ESP[p]
                 if not pack or pack.character~=char then pack=makeESP(p) end
@@ -3019,13 +3069,11 @@ Gui.Destroying:Connect(function() dispose(false) end)
 
 print("[combat hub] audited build loaded | RShift = menu | End = panic | unimplemented modules are labeled")
 
-Boot.show(1,"Ready")
-RS.Heartbeat:Wait()
+Boot.progress(1,"Ready"); RS.Heartbeat:Wait()
 Boot.ready=true
 if Boot.gui then Boot.gui:Destroy(); Boot.gui=nil end
 task.defer(runAutoExec)]========]
-else
- source=[========[-- COMBAT HUB V1.8 | PC implementation
+else source=[========[-- COMBAT HUB V1.9 | PC | rebuilt from uploaded sources
 -- COMBAT HUB — all modules
 -- RShift = menu
 
@@ -3042,32 +3090,29 @@ local StarterGui = game:GetService("StarterGui")
 local Cam = workspace.CurrentCamera
 local LP = Players.LocalPlayer
 local Mouse = LP:GetMouse()
-local alive,pointerOverMenu
 
-local Boot={ready=false,count=0,total=101,mobile=false}
+local alive,pointerOverMenu
+local Boot={ready=false,count=0,total=102,mobile=false}
 do
- local g=Instance.new("ScreenGui"); g.Name="CombatHubLoadingV18"; g.ResetOnSpawn=false; g.DisplayOrder=2000; g.IgnoreGuiInset=true
+ local g=Instance.new("ScreenGui"); g.Name="CombatHubLoading"; g.ResetOnSpawn=false; g.DisplayOrder=2000; g.IgnoreGuiInset=true
  pcall(function() g.Parent=game:GetService("CoreGui") end)
  if not g.Parent then g.Parent=LP:WaitForChild("PlayerGui") end
  Boot.gui=g
  local bg=Instance.new("Frame",g); bg.Size=UDim2.fromScale(1,1); bg.BackgroundColor3=Color3.fromRGB(12,12,16); bg.Active=true
- local t=Instance.new("TextLabel",bg); t.Size=UDim2.new(.9,0,0,100); t.Position=UDim2.fromScale(.05,.34)
- t.BackgroundTransparency=1; t.TextWrapped=true; t.TextColor3=Color3.fromRGB(235,235,245); t.Font=Enum.Font.GothamBold; t.TextSize=18; Boot.label=t
- local track=Instance.new("Frame",bg); track.Size=UDim2.new(.8,0,0,8); track.Position=UDim2.fromScale(.1,.6); track.BackgroundColor3=Color3.fromRGB(40,40,52)
- local f=Instance.new("Frame",track); f.BorderSizePixel=0; f.Size=UDim2.fromScale(0,1); f.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=f
+ local label=Instance.new("TextLabel",bg); label.BackgroundTransparency=1; label.Size=UDim2.new(.9,0,0,120); label.Position=UDim2.fromScale(.05,.3)
+ label.TextColor3=Color3.fromRGB(235,235,245); label.Font=Enum.Font.GothamBold; label.TextSize=18; label.TextWrapped=true; Boot.label=label
+ local track=Instance.new("Frame",bg); track.Position=UDim2.fromScale(.1,.6); track.Size=UDim2.new(.8,0,0,8); track.BackgroundColor3=Color3.fromRGB(40,40,52)
+ local fill=Instance.new("Frame",track); fill.Size=UDim2.fromScale(0,1); fill.BorderSizePixel=0
+ fill.BackgroundColor3=Boot.mobile and Color3.fromRGB(255,210,50) or Color3.fromRGB(70,150,255); Boot.fill=fill
 end
-function Boot.show(p,text)
- if Boot.gui and Boot.gui.Parent then
- Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.8\n"..text.."\n"..math.floor(p*100).."%"
- end
+function Boot.progress(p,text)
+ if Boot.gui and Boot.gui.Parent then Boot.fill.Size=UDim2.fromScale(p,1); Boot.label.Text="COMBAT HUB V1.9\n"..text.."\n"..math.floor(p*100).."%" end
 end
 function Boot.module(name)
- Boot.count+=1
- Boot.show(.15+.70*math.min(Boot.count/Boot.total,1),"Loaded module control: "..name)
+ Boot.count+=1; Boot.progress(.15+.70*math.min(Boot.count/Boot.total,1),"Module control: "..name)
  if Boot.mobile then RS.Heartbeat:Wait() end
 end
-Boot.show(.02,"Preparing PC implementation")
-RS.Heartbeat:Wait()
+Boot.progress(.02,"Preparing interface"); RS.Heartbeat:Wait()
 
 
 local S = {
@@ -3077,7 +3122,7 @@ local S = {
 	HeadOnly=true, LockPart="Head", StickyAim=true, Humanize=false, Jitter=0.4,
 	Triggerbot=false, AutoShoot=false, Prediction=0.12, Smooth=0.22, AssistStr=0.08, MagnetStr=0.35,
 	FOV=160, DynFOV=false, DynFOVAdd=40, ShowFOV=true, TeamCheck=true, WallCheck=false, VisibleOnly=false,
-	IgnoreFriends=true, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
+	IgnoreFriends=true, ESPIgnoreFriends=false, IgnoreDowned=true, MaxDist=2000, SwitchDelay=0.15, Priority="Crosshair", HitChance=100,
 	ADSOnly=false, HipfireSmooth=0.4, SnapBlend=0.5, FirstBullet=true,
 	-- rage
 	Hitbox=false, HitboxSize=8, KillAura=false, AuraRange=15, MeleeAim=false, DoubleTap=false, ForceHeadClose=false, CloseRange=25, AutoWall=false,
@@ -3614,7 +3659,7 @@ local function getNearestEnemyRoot()
 	if me then origin = me.Position end
 	local best, bestDist = nil, math.huge
 	for _,p in ipairs(Players:GetPlayers()) do
-		if alive(p) and p.Character then
+		if alive(p,"aim") and p.Character then
 			local root = p.Character:FindFirstChild("HumanoidRootPart")
 			if root then
 				local d = (root.Position - origin).Magnitude
@@ -3960,17 +4005,14 @@ end
 local Top=Instance.new("Frame",Main); Top.Size=UDim2.new(1,0,0,44); Top.BackgroundColor3=T.panel; Top.BorderSizePixel=0; corner(Top,12)
 local tf=Instance.new("Frame",Top); tf.Size=UDim2.new(1,0,0,14); tf.Position=UDim2.new(0,0,1,-14); tf.BackgroundColor3=T.panel; tf.BorderSizePixel=0
 local Title=Instance.new("TextLabel",Top); Title.Size=UDim2.new(0,220,1,0); Title.Position=UDim2.new(0,16,0,0); Title.BackgroundTransparency=1; Title.Text="COMBAT HUB"; Title.TextColor3=T.txt; Title.Font=Enum.Font.GothamBold; Title.TextSize=15; Title.TextXAlignment=Enum.TextXAlignment.Left
-local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="V1.8"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
+local Ver=Instance.new("TextLabel",Top); Ver.Size=UDim2.new(0,48,0,18); Ver.Position=UDim2.new(0,160,0.5,-9); Ver.BackgroundColor3=T.p2; Ver.Text="V1.9"; Ver.TextColor3=T.acc; Ver.Font=Enum.Font.GothamBold; Ver.TextSize=11; corner(Ver,4)
 
--- Device badge in the top tab bar.
 do
- local badge=Instance.new("Frame",Top); badge.Name="DeviceIcon"; badge.Size=UDim2.fromOffset(22,22)
- badge.Position=UDim2.new(0,216,.5,-11); badge.BackgroundColor3=Color3.fromRGB(70,150,255); corner(badge,4)
+ local badge=Instance.new("Frame",Top); badge.Name="DeviceIcon"; badge.Size=UDim2.fromOffset(22,22); badge.Position=UDim2.new(0,216,.5,-11)
+ badge.BackgroundColor3=Color3.fromRGB(70,150,255); corner(badge,4)
  local body=Instance.new("Frame",badge); body.BorderSizePixel=0; body.BackgroundColor3=Color3.fromRGB(15,18,25)
  body.Size=UDim2.fromOffset(18,13); body.Position=UDim2.fromOffset(2,4)
- local screen=Instance.new("Frame",body); screen.BorderSizePixel=0; screen.BackgroundColor3=Color3.fromRGB(70,150,255)
- screen.Size=UDim2.new(1,-4,1,-5); screen.Position=UDim2.fromOffset(2,2)
- badge:SetAttribute("Device","PC")
+ local screen=Instance.new("Frame",body); screen.BorderSizePixel=0; screen.Size=UDim2.new(1,-4,1,-5); screen.Position=UDim2.fromOffset(2,2); screen.BackgroundColor3=Color3.fromRGB(70,150,255)
 end
 
 local DISCORD_URL="https://discord.gg/RrQQh6B4nP"
@@ -4289,8 +4331,38 @@ local function btn(parent,name,fn,danger)
 	bindTip(r, name)
 end
 
-Boot.show(.15,"Building modules")
-RS.Heartbeat:Wait()
+
+-- Dedicated movement updater: isolated from combat and weapon callbacks.
+do
+ local current
+ local function update()
+  local char=LP.Character
+  local hum=char and char:FindFirstChildOfClass("Humanoid")
+  if hum~=current then
+   restoreModule("Speed"); restoreModule("JumpPow"); current=hum
+  end
+  if not hum or hum.Health<=0 then return end
+  if S.Speed and not S.Panic then
+   if not (S.StopMoveShoot and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)) then
+    setProperty("Speed",hum,"WalkSpeed",S.SpeedVal)
+   end
+  else restoreModule("Speed") end
+  if S.JumpPow and not S.Panic then
+   -- Respect whichever jump mode the experience uses.
+   setProperty("JumpPow",hum,"JumpPower",S.JumpVal)
+   local gravity=workspace.Gravity
+   if gravity>0 then setProperty("JumpPow",hum,"JumpHeight",S.JumpVal*S.JumpVal/(2*gravity)) end
+  else restoreModule("JumpPow") end
+ end
+ connect(RS.PreSimulation,function()
+  local ok,err=pcall(update)
+  if not ok then warn("[Combat Hub movement] "..tostring(err)) end
+ end)
+ configCallbacks.Speed=function() update() end
+ configCallbacks.JumpPow=function() update() end
+end
+
+Boot.progress(.15,"Building modules"); RS.Heartbeat:Wait()
 -- AIM
 do local p=pages.aim
 	local c=card(p,"Targeting","Main aim modules")
@@ -4390,6 +4462,7 @@ end
 -- VISUALS
 do local p=pages.visuals
 	local c=card(p,"ESP","")
+ tog(c,"Ignore Friends (ESP / Radar)","ESPIgnoreFriends")
 	tog(c,"Chams","Chams")
 	slider(c,"Chams Fill","ChamsFill",0,1,2)
 	slider(c,"Chams Outline","ChamsOutline",0,1,2)
@@ -4718,7 +4791,7 @@ end
 		aeProfile.Text = autoExecProfile
 		aeProfile.LayoutOrder = nord(ae)
 		corner(aeProfile, 6)
- bindTip(aeProfile, "Profile name to auto-load")
+ bindTip(aeProfile,"Profile name to auto-load")
 
 		local aeStatus = Instance.new("TextLabel", ae)
 		aeStatus.Size = UDim2.new(1, 0, 0, 28)
@@ -4752,8 +4825,7 @@ end
 
 sideBtns.aim.BackgroundTransparency=0; sideBtns.aim.L.TextColor3=T.txt; pages.aim.Visible=true; cur="aim"; PageTitle.Text="Aim"; PageDesc.Text=cats[1].d
 
-Boot.show(.90,"Preparing runtime")
-RS.Heartbeat:Wait()
+Boot.progress(.90,"Connecting runtime"); RS.Heartbeat:Wait()
 
 -- watermark
 local WM=Instance.new("TextLabel",Gui); WM.Size=UDim2.new(0,260,0,20); WM.Position=UDim2.new(0,10,0,10); WM.BackgroundTransparency=0.3; WM.BackgroundColor3=T.bg; WM.TextColor3=T.txt; WM.Font=Enum.Font.GothamBold; WM.TextSize=11; WM.TextXAlignment=Enum.TextXAlignment.Left; WM.Text="  COMBAT HUB | loading"; corner(WM,4)
@@ -5305,14 +5377,14 @@ local _oldDispose = dispose
 -- LOGIC
 --------------------------------------------------------------------
 local friendshipCache={}
-alive=function(p)
+alive=function(p,context)
     if not p or p==LP then return false end
     local char=p.Character
     local hum=char and char:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health<=0 then return false end
     if S.IgnoreDowned and hum.Health<=5 then return false end
     if S.TeamCheck and not p.Neutral and not LP.Neutral and p.Team and p.Team==LP.Team then return false end
-    if S.IgnoreFriends then
+    if (context=="aim" and S.IgnoreFriends) or (context=="esp" and S.ESPIgnoreFriends) then
         local cached=friendshipCache[p.UserId]
         if cached==nil then
             friendshipCache[p.UserId]="pending"
@@ -5403,7 +5475,7 @@ local function getTarget()
     local current
     if CT and CT.Parent then
         local player=Players:GetPlayerFromCharacter(CT.Parent)
-        if player and alive(player) then
+        if player and alive(player,"aim") then
             local part=aimPart(player.Character)
             if targetMetrics(part,camera,origin,root,fov) then current=part end
         end
@@ -5411,7 +5483,7 @@ local function getTarget()
     if current and (S.StickyAim or os.clock()-lastSwitch<S.SwitchDelay) then CT=current; return current end
     local best,bestScore=nil,math.huge
     for _,player in ipairs(Players:GetPlayers()) do
-        if alive(player) then
+        if alive(player,"aim") then
             local part=aimPart(player.Character)
             local cross=targetMetrics(part,camera,origin,root,fov)
             if cross then
@@ -5632,7 +5704,7 @@ connect(RS.RenderStepped,function(dt)
     if S.Radar and radarRoot then
         for _,player in ipairs(Players:GetPlayers()) do
             local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-            if root and alive(player) then
+            if root and alive(player,"esp") then
                 seen[player]=true
                 local dot=radarDots[player]
                 if not dot then dot=Instance.new("Frame",RadarF); dot.Size=UDim2.fromOffset(4,4); dot.BorderSizePixel=0; corner(dot,2); radarDots[player]=dot end
@@ -5695,7 +5767,7 @@ connect(RS.Heartbeat,function()
                         if model:IsA("Model") then player=Players:GetPlayerFromCharacter(model); if player then break end end
                         model=model.Parent
                     end
-                    if player and alive(player) then
+                    if player and alive(player,"aim") then
                         local sp,on = camera:WorldToViewportPoint(hit.Position)
                         local dist2d = on and (Vector2.new(sp.X,sp.Y)-aimPoint).Magnitude or math.huge
                         if dist2d <= (S.TriggerRange or 22) and wallOk(hit.Instance) then fire=true end
@@ -5733,8 +5805,8 @@ connect(RS.Heartbeat,function()
 
 	local char=LP.Character; if not char then return end
 	local hum=char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-	if S.Speed then setProperty("Speed",hum,"WalkSpeed",S.SpeedVal) end
-	if S.JumpPow then setProperty("JumpPow",hum,"UseJumpPower",true); setProperty("JumpPow",hum,"JumpPower",S.JumpVal) end
+	
+	
 	if S.Bhop and hum.FloorMaterial~=Enum.Material.Air and UIS:IsKeyDown(Enum.KeyCode.Space) then hum.Jump=true end
 	if S.EdgeJump and hum.FloorMaterial~=Enum.Material.Air then
 		local root=char:FindFirstChild("HumanoidRootPart")
@@ -5836,7 +5908,7 @@ local espConnection=connect(RS.RenderStepped,function()
             local localRoot=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
             local checkPart=char and (char:FindFirstChild("Head") or root)
             local withinRange=root and (not localRoot or (root.Position-localRoot.Position).Magnitude<=(S.ESPMaxDist or S.MaxDist))
-            if not alive(p) or not root or not withinRange then clearESP(p)
+            if not alive(p,"esp") or not root or not withinRange then clearESP(p)
             else
                 local pack=ESP[p]
                 if not pack or pack.character~=char then pack=makeESP(p) end
@@ -5994,23 +6066,22 @@ Gui.Destroying:Connect(function() dispose(false) end)
 
 print("[combat hub] audited build loaded | RShift = menu | End = panic | unimplemented modules are labeled")
 
-Boot.show(1,"Ready")
-RS.Heartbeat:Wait()
+Boot.progress(1,"Ready"); RS.Heartbeat:Wait()
 Boot.ready=true
 if Boot.gui then Boot.gui:Destroy(); Boot.gui=nil end
-task.defer(runAutoExec)]========]
-end
-assert(type(loadstring)=="function","This launcher requires loadstring support")
-local chunk,err=loadstring(source,mobile and "CombatHubV18Mobile" or "CombatHubV18PC")
-if not chunk then error("Combat Hub compile failed: "..tostring(err)) end
-local ok,message=xpcall(chunk,function(e) return tostring(e).."\n"..debug.traceback() end)
+task.defer(runAutoExec)]========] end
+assert(type(loadstring)=="function","Combat Hub AUTO requires loadstring")
+local run,compileError=loadstring(source,mobile and "CombatHubMobileV19" or "CombatHubPCV19")
+assert(run,compileError)
+local ok,err=xpcall(run,function(e) return tostring(e).."\n"..debug.traceback() end)
 if not ok then
- warn("[Combat Hub V1.8] "..message)
- for _,parent in ipairs({game:GetService("CoreGui"),game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")}) do
-  if parent then
-   local overlay=parent:FindFirstChild("CombatHubLoadingV18")
-   if overlay then overlay:Destroy() end
-  end
- end
- error(message)
+ warn("[Combat Hub V1.9] "..tostring(err))
+ pcall(function()
+  local g=game:GetService("CoreGui"):FindFirstChild("CombatHubLoading"); if g then g:Destroy() end
+ end)
+ pcall(function()
+  local p=game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+  local g=p and p:FindFirstChild("CombatHubLoading"); if g then g:Destroy() end
+ end)
+ error(err)
 end
